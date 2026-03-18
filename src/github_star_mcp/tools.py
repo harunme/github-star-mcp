@@ -382,41 +382,6 @@ def create_server(tools: MCPTools) -> Server:
     return server
 
 
-async def run_http_server(
-    config: Config,
-    host: str = "127.0.0.1",
-    port: int = 8000,
-):
-    """HTTP 模式运行 MCP Server"""
-    import contextlib
-    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-    from starlette.applications import Starlette
-    from starlette.routing import Mount
-    import uvicorn
-
-    tools = MCPTools(config)
-    server = create_server(tools)
-
-    session_manager = StreamableHTTPSessionManager(
-        app=server,
-        stateless=False,
-    )
-
-    @contextlib.asynccontextmanager
-    async def lifespan(app):
-        async with session_manager.run():
-            yield
-
-    starlette_app = Starlette(
-        routes=[Mount("/", app=session_manager.handle_request)],
-        lifespan=lifespan,
-    )
-
-    config_uvicorn = uvicorn.Config(starlette_app, host=host, port=port)
-    server_uvicorn = uvicorn.Server(config_uvicorn)
-    await server_uvicorn.serve()
-
-
 async def run_server(config: Config):
     """运行 MCP Server (stdio 模式)"""
     tools = MCPTools(config)

@@ -57,14 +57,20 @@ from .tools import run_server
     help="传输模式: stdio 或 http",
 )
 @click.option(
+    "--mode",
+    type=click.Choice(["guided", "mcp"]),
+    default=None,
+    help="服务器模式: guided (引导页面) 或 mcp (纯 MCP)",
+)
+@click.option(
     "--host",
-    default="127.0.0.1",
+    default=None,
     help="HTTP 模式监听地址",
 )
 @click.option(
     "--port",
     type=int,
-    default=8000,
+    default=None,
     help="HTTP 模式监听端口",
 )
 def main(
@@ -77,8 +83,9 @@ def main(
     gitea_username: str | None,
     anthropic_api_key: str | None,
     transport: str = "stdio",
-    host: str = "127.0.0.1",
-    port: int = 8000,
+    mode: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
 ):
     """GitHub Stars MCP Server"""
     # 加载配置
@@ -110,9 +117,15 @@ def main(
         sys.exit(1)
 
     # 运行服务器
-    if transport == "http":
-        from .tools import run_http_server
-        asyncio.run(run_http_server(config, host=host, port=port))
+    if mode == "guided":
+        # 引导模式
+        from .web_app import run_web_server
+        run_web_server(config, host=host, port=port)
+    elif transport == "http":
+        from .web_app import run_http_server
+        actual_host = host or config.server.host
+        actual_port = port or config.server.port
+        asyncio.run(run_http_server(config, host=actual_host, port=actual_port))
     else:
         from .tools import run_server
         asyncio.run(run_server(config))

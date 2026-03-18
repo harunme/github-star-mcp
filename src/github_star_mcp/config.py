@@ -22,6 +22,14 @@ class GiteaConfig(BaseModel):
     username: str = ""
 
 
+class ServerConfig(BaseModel):
+    """服务器配置"""
+    mode: str = "guided"  # guided | mcp
+    host: str = "0.0.0.0"
+    port: int = 8080
+    require_sync: bool = True  # 是否强制同步后解锁 MCP
+
+
 class DatabaseConfig(BaseModel):
     """数据库配置"""
     path: str = "~/.github-star-mcp/data.db"
@@ -47,6 +55,9 @@ class Config(BaseSettings):
 
     # 数据库配置
     database: DatabaseConfig = DatabaseConfig()
+
+    # 服务器配置
+    server: ServerConfig = ServerConfig()
 
     # LLM 配置 (用于 RAG)
     anthropic_api_key: str = ""

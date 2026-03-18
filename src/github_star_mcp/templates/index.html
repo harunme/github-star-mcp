@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Stars MCP Server</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #0d1117 0%, #161b22 100%);
+            min-height: 100vh;
+            color: #c9d1d9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 600px;
+            width: 100%;
+            background: #21262d;
+            border-radius: 16px;
+            border: 1px solid #30363d;
+            padding: 40px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            color: #f0f6fc;
+            margin-bottom: 8px;
+        }
+
+        .header .username {
+            color: #58a6ff;
+            font-weight: 500;
+        }
+
+        .status-card {
+            background: #161b22;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid #30363d;
+        }
+
+        .status-card h2 {
+            font-size: 16px;
+            color: #8b949e;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .status-icon {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .status-icon.pending { background: #f0883e; }
+        .status-icon.syncing { background: #58a6ff; animation: pulse 1.5s infinite; }
+        .status-icon.completed { background: #3fb950; }
+        .status-icon.failed { background: #f85149; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #f0f6fc;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #8b949e;
+            margin-top: 4px;
+        }
+
+        .progress-container {
+            margin-top: 16px;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: #30363d;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #58a6ff, #a371f7);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            width: 0%;
+        }
+
+        .progress-text {
+            text-align: center;
+            margin-top: 8px;
+            font-size: 14px;
+            color: #8b949e;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s ease;
+            width: 100%;
+            margin-top: 16px;
+        }
+
+        .btn-primary {
+            background: #238636;
+            color: #ffffff;
+        }
+
+        .btn-primary:hover {
+            background: #2ea043;
+        }
+
+        .btn-primary:disabled {
+            background: #21262d;
+            color: #8b949e;
+            cursor: not-allowed;
+        }
+
+        .btn-danger {
+            background: #21262d;
+            color: #f85149;
+            border: 1px solid #f85149;
+        }
+
+        .btn-danger:hover {
+            background: #f8514920;
+        }
+
+        .btn-secondary {
+            background: #21262d;
+            color: #c9d1d9;
+            border: 1px solid #30363d;
+        }
+
+        .btn-secondary:hover {
+            background: #30363d;
+        }
+
+        .error-message {
+            background: #f8514920;
+            border: 1px solid #f85149;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+            color: #f85149;
+            font-size: 14px;
+        }
+
+        .success-message {
+            background: #3fb95020;
+            border: 1px solid #3fb950;
+            border-radius: 8px;
+            padding: 16px;
+            margin-top: 16px;
+            color: #3fb950;
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .mcp-info {
+            margin-top: 24px;
+            padding-top: 24px;
+            border-top: 1px solid #30363d;
+            text-align: center;
+        }
+
+        .mcp-info h3 {
+            font-size: 14px;
+            color: #8b949e;
+            margin-bottom: 8px;
+        }
+
+        .mcp-url {
+            background: #161b22;
+            padding: 12px;
+            border-radius: 8px;
+            font-family: "SF Mono", Monaco, Consolas, monospace;
+            font-size: 13px;
+            color: #58a6ff;
+            word-break: break-all;
+        }
+
+        .mcp-locked {
+            color: #f0883e;
+        }
+
+        /* 隐藏/显示逻辑 */
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>GitHub Stars MCP Server</h1>
+            <p>用户: <span class="username">{{ username }}</span></p>
+        </div>
+
+        <!-- 状态卡片 -->
+        <div class="status-card">
+            <h2>
+                <span class="status-icon {{ status }}"></span>
+                <span id="status-text">{% if status == 'pending' %}等待同步{% elif status == 'syncing' %}同步中{% elif status == 'completed' %}同步完成{% elif status == 'failed' %}同步失败{% endif %}</span>
+            </h2>
+
+            <!-- 统计 -->
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-value" id="total-projects">{{ total_projects }}</div>
+                    <div class="stat-label">总项目</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="synced-projects">{{ synced_projects }}</div>
+                    <div class="stat-label">已同步</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="progress-percent">{{ progress }}%</div>
+                    <div class="stat-label">进度</div>
+                </div>
+            </div>
+
+            <!-- 进度条 (仅同步中显示) -->
+            <div class="progress-container" id="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progress-fill" style="width: {{ progress }}%"></div>
+                </div>
+                <div class="progress-text" id="progress-text">{{ current }} / {{ total if total > 0 else '?' }} 个项目</div>
+            </div>
+
+            <!-- 错误信息 -->
+            {% if error and status == 'failed' %}
+            <div class="error-message">
+                <strong>同步失败:</strong> {{ error }}
+            </div>
+            {% endif %}
+
+            <!-- 完成信息 -->
+            {% if status == 'completed' %}
+            <div class="success-message">
+                所有 GitHub Stars 已同步完成！
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- 操作按钮 -->
+        <div id="action-buttons">
+            <!-- 等待同步 -->
+            {% if status == 'pending' %}
+            <button class="btn btn-primary" id="btn-start" onclick="startSync()">
+                <span>🚀</span> 开始同步 GitHub Stars
+            </button>
+            {% endif %}
+
+            <!-- 同步中 -->
+            {% if status == 'syncing' %}
+            <button class="btn btn-danger" id="btn-cancel" onclick="cancelSync()">
+                <span>✕</span> 取消同步
+            </button>
+            {% endif %}
+
+            <!-- 同步完成 -->
+            {% if status == 'completed' %}
+            <button class="btn btn-secondary" id="btn-reset" onclick="resetSync()">
+                <span>↻</span> 重新同步
+            </button>
+            {% endif %}
+
+            <!-- 同步失败 -->
+            {% if status == 'failed' %}
+            <button class="btn btn-primary" id="btn-retry" onclick="startSync()">
+                <span>↻</span> 重试同步
+            </button>
+            <button class="btn btn-secondary" id="btn-reset" onclick="resetSync()" style="margin-top: 8px;">
+                <span>🗑</span> 清空数据并重新开始
+            </button>
+            {% endif %}
+        </div>
+
+        <!-- MCP 端点信息 -->
+        <div class="mcp-info">
+            <h3>MCP 端点</h3>
+            <div class="mcp-url {% if require_sync and status != 'completed' %}mcp-locked{% endif %}">
+                {% if require_sync and status != 'completed' %}
+                    🔒 MCP 服务将在同步完成后可用
+                {% else %}
+                    MCP 端点已就绪
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let status = "{{ status }}";
+        let pollingInterval = null;
+
+        // 页面加载时启动轮询
+        document.addEventListener('DOMContentLoaded', function() {
+            if (status === 'syncing') {
+                startPolling();
+            }
+        });
+
+        function startSync() {
+            fetch('/api/sync/start', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        alert(data.error);
+                        return;
+                    }
+                    location.reload();
+                })
+                .catch(err => {
+                    console.error('启动同步失败:', err);
+                    alert('启动同步失败，请重试');
+                });
+        }
+
+        function cancelSync() {
+            fetch('/api/sync/cancel', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    location.reload();
+                })
+                .catch(err => {
+                    console.error('取消同步失败:', err);
+                });
+        }
+
+        function resetSync() {
+            if (!confirm('确定要清空所有同步数据并重新开始吗？')) {
+                return;
+            }
+            fetch('/api/sync/reset', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    location.reload();
+                })
+                .catch(err => {
+                    console.error('重置失败:', err);
+                });
+        }
+
+        function startPolling() {
+            if (pollingInterval) return;
+            pollingInterval = setInterval(pollStatus, 2000);
+        }
+
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+        }
+
+        function pollStatus() {
+            fetch('/api/sync/status')
+                .then(res => res.json())
+                .then(data => {
+                    // 更新 UI
+                    document.getElementById('progress-percent').textContent = data.progress + '%';
+                    document.getElementById('progress-fill').style.width = data.progress + '%';
+                    document.getElementById('progress-text').textContent = (data.current || 0) + ' / ' + (data.total || '?') + ' 个项目';
+                    document.getElementById('synced-projects').textContent = data.synced_projects || 0;
+                    document.getElementById('total-projects').textContent = data.total_projects || 0;
+
+                    // 更新状态文本
+                    const statusText = document.getElementById('status-text');
+                    const statusIcon = document.querySelector('.status-icon');
+
+                    if (data.status === 'syncing') {
+                        statusText.textContent = '同步中';
+                        statusIcon.className = 'status-icon syncing';
+                    } else if (data.status === 'completed') {
+                        statusText.textContent = '同步完成';
+                        statusIcon.className = 'status-icon completed';
+                        stopPolling();
+                        location.reload(); // 重新加载页面以显示完整 UI
+                    } else if (data.status === 'failed') {
+                        statusText.textContent = '同步失败';
+                        statusIcon.className = 'status-icon failed';
+                        stopPolling();
+                        location.reload();
+                    }
+
+                    // 如果失败，显示错误
+                    if (data.error && data.status === 'failed') {
+                        const errorDiv = document.querySelector('.error-message');
+                        if (errorDiv) {
+                            errorDiv.innerHTML = '<strong>同步失败:</strong> ' + data.error;
+                        }
+                    }
+                })
+                .catch(err => {
+                    console.error('轮询状态失败:', err);
+                });
+        }
+    </script>
+</body>
+</html>
