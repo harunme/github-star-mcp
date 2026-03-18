@@ -21,9 +21,10 @@ pip install -e .
 
 ## Configuration
 
-1. Copy the config template:
+1. Create the config directory and copy the config template:
 
 ```bash
+mkdir -p ~/.github-star-mcp
 cp config.yaml.example ~/.github-star-mcp/config.yaml
 ```
 
