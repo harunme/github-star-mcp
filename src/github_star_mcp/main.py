@@ -50,6 +50,23 @@ from .tools import run_server
     envvar="ANTHROPIC_API_KEY",
     help="Anthropic API Key (用于 RAG)",
 )
+@click.option(
+    "--transport",
+    type=click.Choice(["stdio", "http"]),
+    default="stdio",
+    help="传输模式: stdio 或 http",
+)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    help="HTTP 模式监听地址",
+)
+@click.option(
+    "--port",
+    type=int,
+    default=8000,
+    help="HTTP 模式监听端口",
+)
 def main(
     config_path: str | None,
     github_token: str | None,
@@ -59,6 +76,9 @@ def main(
     gitea_token: str | None,
     gitea_username: str | None,
     anthropic_api_key: str | None,
+    transport: str = "stdio",
+    host: str = "127.0.0.1",
+    port: int = 8000,
 ):
     """GitHub Stars MCP Server"""
     # 加载配置
@@ -90,7 +110,12 @@ def main(
         sys.exit(1)
 
     # 运行服务器
-    asyncio.run(run_server(config))
+    if transport == "http":
+        from .tools import run_http_server
+        asyncio.run(run_http_server(config, host=host, port=port))
+    else:
+        from .tools import run_server
+        asyncio.run(run_server(config))
 
 
 if __name__ == "__main__":
