@@ -21,8 +21,12 @@ pip install -e .
 
 ## 配置
 
-创建 `~/.github-star-mcp/config.yaml`:
+1. 复制模板配置文件:
+```bash
+cp config.yaml.example ~/.github-star-mcp/config.yaml
+```
 
+2. 编辑 `~/.github-star-mcp/config.yaml`，填入你的配置:
 ```yaml
 github_token: your_github_token
 github_username: your_username
