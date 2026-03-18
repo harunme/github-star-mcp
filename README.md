@@ -1,32 +1,34 @@
 # GitHub Stars MCP Server
 
-获取 GitHub stars 列表、向量化存储、RAG 问答、备份到 Gitea 的 MCP 服务。
+A Model Context Protocol (MCP) server for managing GitHub stars with vector storage, RAG-based Q&A, and Gitea backup.
 
-## 功能
+## Features
 
-- 📥 **list_stars** - 获取 GitHub stars 列表
-- 🔄 **sync_stars** - 同步 stars 到本地并向量化
-- 🔍 **search_projects** - 向量语义搜索项目
-- 💬 **ask_about_projects** - 基于 RAG 智能问答
-- 📦 **fork_to_gitea** - 备份项目到 Gitea
-- 📋 **list_backed_up** - 列出已备份项目
-- ℹ️ **get_project_info** - 获取项目详情
+- **list_stars** - List GitHub starred repositories
+- **sync_stars** - Sync and vectorize stars
+- **search_projects** - Semantic vector search
+- **ask_about_projects** - RAG-based Q&A
+- **fork_to_gitea** - Backup projects to Gitea
+- **list_backed_up** - List backed up projects
+- **get_project_info** - Get project details
 
-## 安装
+## Installation
 
 ```bash
 cd github-star-mcp
 pip install -e .
 ```
 
-## 配置
+## Configuration
 
-1. 复制模板配置文件:
+1. Copy the config template:
+
 ```bash
 cp config.yaml.example ~/.github-star-mcp/config.yaml
 ```
 
-2. 编辑 `~/.github-star-mcp/config.yaml`，填入你的配置:
+2. Edit `~/.github-star-mcp/config.yaml` with your settings:
+
 ```yaml
 github_token: your_github_token
 github_username: your_username
@@ -46,17 +48,17 @@ database:
   path: ~/.github-star-mcp/data.db
 ```
 
-## 使用
+## Usage
 
-### 命令行运行
+### Command Line
 
 ```bash
 github-star-mcp --github-token your_token --github-username your_user
 ```
 
-### Claude Desktop 配置
+### Claude Desktop
 
-在 `~/Library/Application Support/Claude/claude_desktop_config.json` 中添加:
+Add the following to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -65,7 +67,7 @@ github-star-mcp --github-token your_token --github-username your_user
       "command": "github-star-mcp",
       "env": {
         "GITHUB_STAR_GITHUB_TOKEN": "your_token",
-        "GITHUB_STAR_GITHUB_USERNAME": "your_username",
+        "GITHUB_STAR_GITHUB_USERNAME": "your_user",
         "ANTHROPIC_API_KEY": "your_key"
       }
     }
@@ -73,9 +75,9 @@ github-star-mcp --github-token your_token --github-username your_user
 }
 ```
 
-## 依赖服务
+## Dependencies
 
-- **Qdrant**: 向量数据库 (默认 localhost:6333)
-- **Gitea**: 可选，用于备份
-- **SQLite**: 自动创建，用于本地存储
-- **Anthropic API**: 可选，用于 RAG 问答
+- **Qdrant** - Vector database (default localhost:6333)
+- **Gitea** - Optional, for backup
+- **SQLite** - Auto-created, for local storage
+- **Anthropic API** - Optional, for RAG Q&A
