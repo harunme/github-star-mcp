@@ -49,7 +49,7 @@ class Config(BaseSettings):
     # 服务器配置
     server: ServerConfig = ServerConfig()
 
-    # LLM 配置 (用于 RAG)
+    # LLM 配置
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-20250514"
 

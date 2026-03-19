@@ -11,7 +11,6 @@ from .github_client import GitHubClient, get_github_client
 from .storage import Storage, project_from_repository
 from .vector_store import VectorStore, create_vector_store
 from .gitea_client import GiteaClient, create_gitea_client
-from .rag import RAG, create_rag
 
 
 class MCPTools:
@@ -23,7 +22,6 @@ class MCPTools:
         self.vector_store = create_vector_store(config)
         self.github_client: Optional[GitHubClient] = None
         self.gitea_client: Optional[GiteaClient] = None
-        self.rag: Optional[RAG] = None
 
     async def get_github_client(self) -> GitHubClient:
         if self.github_client is None:
@@ -38,11 +36,6 @@ class MCPTools:
                 self.config.gitea.username,
             )
         return self.gitea_client
-
-    def get_rag(self) -> RAG:
-        if self.rag is None:
-            self.rag = create_rag(self.config, self.vector_store)
-        return self.rag
 
     async def close(self):
         """关闭所有客户端"""
@@ -133,11 +126,6 @@ class MCPTools:
             output += f"- 链接: {payload.get('html_url')}\n\n"
 
         return output
-
-    async def ask_about_projects(self, question: str) -> str:
-        """基于 RAG 问答"""
-        rag = self.get_rag()
-        return await rag.ask(question)
 
     async def fork_to_gitea(
         self,
@@ -292,20 +280,6 @@ def create_server(tools: MCPTools) -> Server:
                 },
             ),
             Tool(
-                name="ask_about_projects",
-                description="基于 RAG 智能问答关于你的 GitHub 项目",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "question": {
-                            "type": "string",
-                            "description": "问题",
-                        },
-                    },
-                    "required": ["question"],
-                },
-            ),
-            Tool(
                 name="fork_to_gitea",
                 description="备份项目到 Gitea",
                 inputSchema={
@@ -363,8 +337,6 @@ def create_server(tools: MCPTools) -> Server:
                 query=arguments["query"],
                 limit=arguments.get("limit", 5),
             )
-        elif name == "ask_about_projects":
-            result = await tools.ask_about_projects(arguments["question"])
         elif name == "fork_to_gitea":
             result = await tools.fork_to_gitea(
                 full_name=arguments["full_name"],
