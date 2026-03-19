@@ -22,6 +22,7 @@ class SyncStatus(str, Enum):
     """同步状态"""
     PENDING = "pending"
     SYNCING = "syncing"
+    LOADING_README = "loading_readme"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -38,6 +39,10 @@ class VectorizeStatus(str, Enum):
 _sync_state: dict = {
     "status": SyncStatus.PENDING,
     "error": "",
+    "synced_projects": 0,
+    "readme_total": 0,
+    "readme_current": 0,
+    "readme_progress": 0,
 }
 _sync_task: Optional[asyncio.Task] = None
 
@@ -92,7 +97,11 @@ def set_vector_state(**kwargs) -> None:
 
 def check_sync_required() -> bool:
     """检查是否需要同步"""
-    return _sync_state.get("status") in (SyncStatus.PENDING, SyncStatus.FAILED)
+    return _sync_state.get("status") in (
+        SyncStatus.PENDING,
+        SyncStatus.FAILED,
+        SyncStatus.LOADING_README,
+    )
 
 
 def check_vectorize_required() -> bool:
@@ -104,37 +113,67 @@ def check_vectorize_required() -> bool:
 
 
 async def _run_sync_task(config: Config) -> None:
-    """执行后台同步任务"""
+    """执行后台同步任务（两阶段：仓库同步 + README 加载）"""
     try:
         set_sync_state(
             status=SyncStatus.SYNCING,
             error="",
+            synced_projects=0,
+            readme_total=0,
+            readme_current=0,
+            readme_progress=0,
         )
 
         tools = MCPTools(config)
         client = await tools.get_github_client()
         username = config.github_username
+        storage = get_storage(config)
 
-        # 直接开始同步：不计算总数/进度（GitHub starred API 无 total 字段）
+        # Phase 1: 同步仓库元数据（无进度，GitHub starred API 无 total）
+        count = 0
         async for repo in client.list_stars(username, per_page=100):
-            # 获取 README
-            readme = await client.get_readme(repo.owner_login, repo.name)
-
-            # 转换为存储模型
             from .storage import project_from_repository
-            project = project_from_repository(repo, readme)
+            project = project_from_repository(repo, readme_content=None)
+            saved = storage.add_project(project)
+            storage.mark_data_synced(saved.id)
+            count += 1
+            set_sync_state(synced_projects=count)
 
-            # 保存到数据库
-            storage = get_storage(config)
-            saved_project = storage.add_project(project)
-            storage.mark_data_synced(saved_project.id)
+        # Phase 2: 加载 README（有进度，因为从 DB 可知总数）
+        total = storage.count_projects()
+        set_sync_state(
+            status=SyncStatus.LOADING_README,
+            readme_total=total,
+            readme_current=0,
+            readme_progress=0,
+        )
 
-        # 关闭客户端
+        current = 0
+        offset = 0
+        while True:
+            projects = storage.list_projects(limit=100, offset=offset)
+            if not projects:
+                break
+
+            for project in projects:
+                readme = await client.get_readme(project.owner_login, project.name)
+                storage.update_readme(project.id, readme)
+                current += 1
+                set_sync_state(
+                    readme_current=current,
+                    readme_progress=int(current / max(total, 1) * 100),
+                )
+
+            offset += len(projects)
+
         await tools.close()
 
         set_sync_state(
             status=SyncStatus.COMPLETED,
             error="",
+            readme_total=total,
+            readme_current=total,
+            readme_progress=100,
         )
     except Exception as e:
         set_sync_state(
@@ -211,6 +250,10 @@ def start_sync_task(config: Config) -> bool:
     set_sync_state(
         status=SyncStatus.PENDING,
         error="",
+        synced_projects=0,
+        readme_total=0,
+        readme_current=0,
+        readme_progress=0,
     )
 
     _sync_task = asyncio.create_task(_run_sync_task(config))
@@ -240,7 +283,7 @@ def cancel_sync_task() -> bool:
     """取消同步任务"""
     global _sync_task
 
-    if _sync_state.get("status") != SyncStatus.SYNCING:
+    if _sync_state.get("status") not in (SyncStatus.SYNCING, SyncStatus.LOADING_README):
         return False
 
     if _sync_task:
@@ -284,6 +327,10 @@ def reset_sync_task() -> bool:
     set_sync_state(
         status=SyncStatus.PENDING,
         error="",
+        synced_projects=0,
+        readme_total=0,
+        readme_current=0,
+        readme_progress=0,
     )
     return True
 
@@ -324,6 +371,9 @@ async def index_page(request: Request) -> HTMLResponse:
     html = template.render(
         status=state["status"],
         error=state["error"],
+        readme_total=state.get("readme_total", 0),
+        readme_current=state.get("readme_current", 0),
+        readme_progress=state.get("readme_progress", 0),
         vector_status=vector_state["status"],
         vector_progress=vector_state["progress"],
         vector_current=vector_state["current"],
@@ -357,6 +407,10 @@ async def api_sync_status(request: Request) -> JSONResponse:
     state["synced_projects"] = storage.count_synced_projects()
     state["vectorized_projects"] = storage.count_vectorized_projects()
     state["vector_status"] = get_vector_state()
+    # 返回 readme 加载进度字段
+    for key in ("readme_total", "readme_current", "readme_progress"):
+        if key not in state:
+            state[key] = 0
 
     return JSONResponse(state)
 

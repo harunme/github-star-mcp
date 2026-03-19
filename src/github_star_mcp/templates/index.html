@@ -230,8 +230,9 @@
             color: #f0883e;
         }
 
-        /* 隐藏/显示逻辑 */
+        .status-icon.loading_readme { background: #a371f7; animation: pulse 1.5s infinite; }
         .hidden { display: none !important; }
+        #readme-progress-container.hidden { display: none !important; }
     </style>
 </head>
 <body>
@@ -245,7 +246,7 @@
         <div class="status-card">
             <h2>
                 <span class="status-icon {{ status }}"></span>
-                <span id="status-text">{% if status == 'pending' %}等待同步{% elif status == 'syncing' %}同步中{% elif status == 'completed' %}同步完成{% elif status == 'failed' %}同步失败{% endif %}</span>
+                <span id="status-text">{% if status == 'pending' %}等待同步{% elif status == 'syncing' %}同步仓库中{% elif status == 'loading_readme' %}加载 README{% elif status == 'completed' %}同步完成{% elif status == 'failed' %}同步失败{% endif %}</span>
             </h2>
 
             <!-- 统计 -->
@@ -258,6 +259,14 @@
                     <div class="stat-value" id="vectorized-projects">{{ vectorized_projects }}</div>
                     <div class="stat-label">已向量化</div>
                 </div>
+            </div>
+
+            <!-- README 加载进度 -->
+            <div class="progress-container" id="readme-progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="readme-progress-fill" style="width: {{ readme_progress }}%"></div>
+                </div>
+                <div class="progress-text" id="readme-progress-text">{{ readme_current }} / {{ readme_total if readme_total > 0 else '?' }} 个项目</div>
             </div>
 
             <!-- 错误信息 -->
@@ -325,8 +334,8 @@
             </button>
             {% endif %}
 
-            <!-- 同步中 -->
-            {% if status == 'syncing' %}
+            <!-- 同步中 / 加载 README -->
+            {% if status == 'syncing' or status == 'loading_readme' %}
             <button class="btn btn-danger" id="btn-cancel" onclick="cancelSync()">
                 <span>✕</span> 取消同步
             </button>
@@ -370,8 +379,16 @@
 
         // 页面加载时启动轮询
         document.addEventListener('DOMContentLoaded', function() {
-                if (status === 'syncing' || vectorStatus === 'vectorizing') {
+            // 初始显示/隐藏 README 进度条
+            if (status === 'syncing' || status === 'loading_readme') {
                 startPolling();
+                if (status === 'loading_readme') {
+                    document.getElementById('readme-progress-container').classList.remove('hidden');
+                } else {
+                    document.getElementById('readme-progress-container').classList.add('hidden');
+                }
+            } else {
+                document.getElementById('readme-progress-container').classList.add('hidden');
             }
         });
 
@@ -436,19 +453,30 @@
                     document.getElementById('synced-projects').textContent = data.synced_projects || 0;
                     document.getElementById('vectorized-projects').textContent = data.vectorized_projects || 0;
 
+                    // 更新 README 进度条
+                    document.getElementById('readme-progress-fill').style.width = (data.readme_progress || 0) + '%';
+                    document.getElementById('readme-progress-text').textContent = (data.readme_current || 0) + ' / ' + (data.readme_total || '?') + ' 个项目';
+
                     // 更新状态文本
                     const statusText = document.getElementById('status-text');
                     const statusIcon = document.querySelector('.status-icon');
 
                     if (data.status === 'syncing') {
-                        statusText.textContent = '同步中';
+                        statusText.textContent = '同步仓库中';
                         statusIcon.className = 'status-icon syncing';
+                        document.getElementById('readme-progress-container').classList.add('hidden');
+                    } else if (data.status === 'loading_readme') {
+                        statusText.textContent = '加载 README';
+                        statusIcon.className = 'status-icon loading_readme';
+                        document.getElementById('readme-progress-container').classList.remove('hidden');
                     } else if (data.status === 'completed') {
                         statusText.textContent = '同步完成';
                         statusIcon.className = 'status-icon completed';
+                        document.getElementById('readme-progress-container').classList.add('hidden');
                     } else if (data.status === 'failed') {
                         statusText.textContent = '同步失败';
                         statusIcon.className = 'status-icon failed';
+                        document.getElementById('readme-progress-container').classList.add('hidden');
                         stopPolling();
                         location.reload();
                     }

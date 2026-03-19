@@ -142,6 +142,55 @@ class Storage:
             statement = select(Project).where(Project.backed_up_at.isnot(None))
             return len(list(session.exec(statement).all()))
 
+    def update_readme(self, project_id: int, readme_content: str) -> None:
+        """更新项目的 README 内容"""
+        with self.get_session() as session:
+            project = session.get(Project, project_id)
+            if project:
+                project.readme_content = readme_content
+                session.add(project)
+                session.commit()
+
+    def mark_data_synced(self, project_id: int) -> None:
+        """标记项目数据已同步"""
+        with self.get_session() as session:
+            project = session.get(Project, project_id)
+            if project:
+                project.synced_at = datetime.utcnow()
+                session.add(project)
+                session.commit()
+
+    def count_vectorized_projects(self) -> int:
+        """统计已向量化的项目数量"""
+        with self.get_session() as session:
+            statement = select(Project).where(Project.vector_id.isnot(None))
+            return len(list(session.exec(statement).all()))
+
+    def list_unvectorized_projects(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Project]:
+        """列出未向量化的项目"""
+        with self.get_session() as session:
+            statement = (
+                select(Project)
+                .where(Project.vector_id.is_(None))
+                .where(Project.readme_content.isnot(None))
+                .offset(offset)
+                .limit(limit)
+            )
+            return list(session.exec(statement).all())
+
+    def mark_vectorized(self, project_id: int, vector_id: str) -> None:
+        """标记项目已向量化"""
+        with self.get_session() as session:
+            project = session.get(Project, project_id)
+            if project:
+                project.vector_id = vector_id
+                session.add(project)
+                session.commit()
+
 
 def model_to_dict(model: Project) -> dict:
     """将 Project 模型转换为字典"""
