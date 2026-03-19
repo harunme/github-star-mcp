@@ -574,7 +574,7 @@ def create_web_app(config: Config, host: str = "0.0.0.0", port: int = 8080) -> S
             Route("/api/vectorize/start", api_vectorize_start, methods=["POST"]),
             Route("/api/vectorize/status", api_vectorize_status, methods=["GET"]),
             Route("/api/vectorize/cancel", api_vectorize_cancel, methods=["POST"]),
-        ] + ([Mount("/assets", app=StaticFiles(directory=str(get_static_dir() / "assets")), packages=None)] if (get_static_dir() / "assets").exists() else []),
+        ] + ([Mount("/assets", app=StaticFiles(directory=str(get_static_dir() / "assets")))] if (get_static_dir() / "assets").exists() else []),
         lifespan=lifespan,
     )
 
