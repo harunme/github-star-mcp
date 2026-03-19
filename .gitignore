@@ -41,3 +41,6 @@ htmlcov/
 
 # mypy
 .mypy_cache/
+
+# Runtime / local data
+qdrant_storage/

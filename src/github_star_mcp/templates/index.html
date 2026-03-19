@@ -84,7 +84,7 @@
 
         .stats {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            grid-template-columns: repeat(2, 1fr);
             gap: 16px;
             margin-top: 16px;
         }
@@ -241,7 +241,7 @@
             <p>用户: <span class="username">{{ username }}</span></p>
         </div>
 
-        <!-- 状态卡片 -->
+        <!-- 数据同步：状态卡片 -->
         <div class="status-card">
             <h2>
                 <span class="status-icon {{ status }}"></span>
@@ -251,25 +251,13 @@
             <!-- 统计 -->
             <div class="stats">
                 <div class="stat-item">
-                    <div class="stat-value" id="total-projects">{{ total_projects }}</div>
-                    <div class="stat-label">总项目</div>
-                </div>
-                <div class="stat-item">
                     <div class="stat-value" id="synced-projects">{{ synced_projects }}</div>
-                    <div class="stat-label">已同步</div>
+                    <div class="stat-label">已入库</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-value" id="progress-percent">{{ progress }}%</div>
-                    <div class="stat-label">进度</div>
+                    <div class="stat-value" id="vectorized-projects">{{ vectorized_projects }}</div>
+                    <div class="stat-label">已向量化</div>
                 </div>
-            </div>
-
-            <!-- 进度条 (仅同步中显示) -->
-            <div class="progress-container" id="progress-container">
-                <div class="progress-bar">
-                    <div class="progress-fill" id="progress-fill" style="width: {{ progress }}%"></div>
-                </div>
-                <div class="progress-text" id="progress-text">{{ current }} / {{ total if total > 0 else '?' }} 个项目</div>
             </div>
 
             <!-- 错误信息 -->
@@ -285,6 +273,47 @@
                 所有 GitHub Stars 已同步完成！
             </div>
             {% endif %}
+        </div>
+
+        <!-- 向量化：状态卡片 -->
+        <div class="status-card">
+            <h2>
+                <span class="status-icon {{ vector_status }}"></span>
+                <span id="vector-status-text">{% if vector_status == 'pending' %}等待向量化{% elif vector_status == 'vectorizing' %}向量化中{% elif vector_status == 'completed' %}向量化完成{% elif vector_status == 'failed' %}向量化失败{% endif %}</span>
+            </h2>
+
+            <div class="progress-container" id="vector-progress-container">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="vector-progress-fill" style="width: {{ vector_progress }}%"></div>
+                </div>
+                <div class="progress-text" id="vector-progress-text">{{ vector_current }} / {{ vector_total if vector_total > 0 else '?' }} 个项目</div>
+            </div>
+
+            {% if vector_error and vector_status == 'failed' %}
+            <div class="error-message">
+                <strong>向量化失败:</strong> {{ vector_error }}
+            </div>
+            {% endif %}
+
+            {% if vector_status == 'completed' %}
+            <div class="success-message">
+                向量化已完成，可以使用 MCP 搜索/问答功能。
+            </div>
+            {% endif %}
+
+            <div id="vector-action-buttons">
+                {% if status == 'completed' and vector_status == 'pending' %}
+                <button class="btn btn-primary" id="btn-vectorize-start" onclick="startVectorize()">
+                    <span>⚡</span> 开始向量化
+                </button>
+                {% endif %}
+
+                {% if vector_status == 'vectorizing' %}
+                <button class="btn btn-danger" id="btn-vectorize-cancel" onclick="cancelVectorize()">
+                    <span>✕</span> 取消向量化
+                </button>
+                {% endif %}
+            </div>
         </div>
 
         <!-- 操作按钮 -->
@@ -336,11 +365,12 @@
 
     <script>
         let status = "{{ status }}";
+            let vectorStatus = "{{ vector_status }}";
         let pollingInterval = null;
 
         // 页面加载时启动轮询
         document.addEventListener('DOMContentLoaded', function() {
-            if (status === 'syncing') {
+                if (status === 'syncing' || vectorStatus === 'vectorizing') {
                 startPolling();
             }
         });
@@ -403,11 +433,8 @@
                 .then(res => res.json())
                 .then(data => {
                     // 更新 UI
-                    document.getElementById('progress-percent').textContent = data.progress + '%';
-                    document.getElementById('progress-fill').style.width = data.progress + '%';
-                    document.getElementById('progress-text').textContent = (data.current || 0) + ' / ' + (data.total || '?') + ' 个项目';
                     document.getElementById('synced-projects').textContent = data.synced_projects || 0;
-                    document.getElementById('total-projects').textContent = data.total_projects || 0;
+                    document.getElementById('vectorized-projects').textContent = data.vectorized_projects || 0;
 
                     // 更新状态文本
                     const statusText = document.getElementById('status-text');
@@ -419,13 +446,36 @@
                     } else if (data.status === 'completed') {
                         statusText.textContent = '同步完成';
                         statusIcon.className = 'status-icon completed';
-                        stopPolling();
-                        location.reload(); // 重新加载页面以显示完整 UI
                     } else if (data.status === 'failed') {
                         statusText.textContent = '同步失败';
                         statusIcon.className = 'status-icon failed';
                         stopPolling();
                         location.reload();
+                    }
+
+                    // 向量化状态（嵌在 sync/status 返回里）
+                    const v = data.vector_status || {};
+                    const vectorText = document.getElementById('vector-status-text');
+                    const vectorIcon = document.querySelectorAll('.status-icon')[1];
+                    document.getElementById('vector-progress-fill').style.width = (v.progress || 0) + '%';
+                    document.getElementById('vector-progress-text').textContent = (v.current || 0) + ' / ' + (v.total || '?') + ' 个项目';
+
+                    if (v.status === 'vectorizing') {
+                        vectorText.textContent = '向量化中';
+                        vectorIcon.className = 'status-icon syncing';
+                    } else if (v.status === 'completed') {
+                        vectorText.textContent = '向量化完成';
+                        vectorIcon.className = 'status-icon completed';
+                        stopPolling();
+                        location.reload();
+                    } else if (v.status === 'failed') {
+                        vectorText.textContent = '向量化失败';
+                        vectorIcon.className = 'status-icon failed';
+                        stopPolling();
+                        location.reload();
+                    } else {
+                        vectorText.textContent = '等待向量化';
+                        vectorIcon.className = 'status-icon pending';
                     }
 
                     // 如果失败，显示错误
@@ -439,6 +489,29 @@
                 .catch(err => {
                     console.error('轮询状态失败:', err);
                 });
+        }
+
+        function startVectorize() {
+            fetch('/api/vectorize/start', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.error) {
+                        alert(data.error);
+                        return;
+                    }
+                    location.reload();
+                })
+                .catch(err => {
+                    console.error('启动向量化失败:', err);
+                    alert('启动向量化失败，请重试');
+                });
+        }
+
+        function cancelVectorize() {
+            fetch('/api/vectorize/cancel', { method: 'POST' })
+                .then(res => res.json())
+                .then(() => location.reload())
+                .catch(err => console.error('取消向量化失败:', err));
         }
     </script>
 </body>

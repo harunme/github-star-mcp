@@ -26,15 +26,29 @@ class SyncStatus(str, Enum):
     FAILED = "failed"
 
 
+class VectorizeStatus(str, Enum):
+    """向量化状态"""
+    PENDING = "pending"
+    VECTORIZING = "vectorizing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 # 全局同步状态管理
 _sync_state: dict = {
     "status": SyncStatus.PENDING,
+    "error": "",
+}
+_sync_task: Optional[asyncio.Task] = None
+
+_vector_state: dict = {
+    "status": VectorizeStatus.PENDING,
     "progress": 0,
     "total": 0,
     "current": 0,
     "error": "",
 }
-_sync_task: Optional[asyncio.Task] = None
+_vector_task: Optional[asyncio.Task] = None
 
 
 def get_templates_dir() -> Path:
@@ -66,9 +80,24 @@ def set_sync_state(**kwargs) -> None:
     _sync_state.update(kwargs)
 
 
+def get_vector_state() -> dict:
+    """获取向量化状态"""
+    return _vector_state.copy()
+
+
+def set_vector_state(**kwargs) -> None:
+    """设置向量化状态"""
+    _vector_state.update(kwargs)
+
+
 def check_sync_required() -> bool:
     """检查是否需要同步"""
     return _sync_state.get("status") in (SyncStatus.PENDING, SyncStatus.FAILED)
+
+
+def check_vectorize_required() -> bool:
+    """检查是否需要向量化"""
+    return _vector_state.get("status") in (VectorizeStatus.PENDING, VectorizeStatus.FAILED)
 
 
 # ===== 同步任务 =====
@@ -80,21 +109,13 @@ async def _run_sync_task(config: Config) -> None:
         set_sync_state(
             status=SyncStatus.SYNCING,
             error="",
-            current=0,
         )
 
         tools = MCPTools(config)
         client = await tools.get_github_client()
         username = config.github_username
 
-        # 先统计总数
-        total = 0
-        async for _ in client.list_stars(username, per_page=100):
-            total += 1
-        set_sync_state(total=total, progress=0)
-
-        # 重置迭代器
-        count = 0
+        # 直接开始同步：不计算总数/进度（GitHub starred API 无 total 字段）
         async for repo in client.list_stars(username, per_page=100):
             # 获取 README
             readme = await client.get_readme(repo.owner_login, repo.name)
@@ -106,29 +127,75 @@ async def _run_sync_task(config: Config) -> None:
             # 保存到数据库
             storage = get_storage(config)
             saved_project = storage.add_project(project)
-
-            # 向量化
-            vector_store = tools.vector_store
-            vector_id = await vector_store.add_project(saved_project)
-
-            # 更新同步状态
-            storage.update_sync_status(saved_project.id, vector_id)
-
-            count += 1
-            set_sync_state(current=count, progress=int(count / max(total, 1) * 100))
+            storage.mark_data_synced(saved_project.id)
 
         # 关闭客户端
         await tools.close()
 
         set_sync_state(
             status=SyncStatus.COMPLETED,
-            progress=100,
-            current=count,
             error="",
         )
     except Exception as e:
         set_sync_state(
             status=SyncStatus.FAILED,
+            error=str(e),
+        )
+
+
+async def _run_vectorize_task(config: Config) -> None:
+    """执行后台向量化任务（从 DB 读取，写入向量库）"""
+    try:
+        set_vector_state(
+            status=VectorizeStatus.VECTORIZING,
+            error="",
+            current=0,
+        )
+
+        tools = MCPTools(config)
+        storage = get_storage(config)
+
+        # 统计待向量化总数（用于百分比进度）
+        total = 0
+        offset = 0
+        batch = storage.list_unvectorized_projects(limit=500, offset=offset)
+        while batch:
+            total += len(batch)
+            offset += len(batch)
+            batch = storage.list_unvectorized_projects(limit=500, offset=offset)
+
+        set_vector_state(total=total, progress=0)
+
+        count = 0
+        offset = 0
+        while True:
+            projects = storage.list_unvectorized_projects(limit=100, offset=offset)
+            if not projects:
+                break
+
+            for project in projects:
+                vector_id = await tools.vector_store.add_project(project)
+                storage.mark_vectorized(project.id, vector_id)
+                count += 1
+                set_vector_state(
+                    current=count,
+                    progress=int(count / max(total, 1) * 100),
+                )
+
+            offset += len(projects)
+
+        await tools.close()
+
+        set_vector_state(
+            status=VectorizeStatus.COMPLETED,
+            progress=100,
+            current=count,
+            total=total,
+            error="",
+        )
+    except Exception as e:
+        set_vector_state(
+            status=VectorizeStatus.FAILED,
             error=str(e),
         )
 
@@ -143,13 +210,29 @@ def start_sync_task(config: Config) -> bool:
     # 重置状态
     set_sync_state(
         status=SyncStatus.PENDING,
+        error="",
+    )
+
+    _sync_task = asyncio.create_task(_run_sync_task(config))
+    return True
+
+
+def start_vectorize_task(config: Config) -> bool:
+    """启动向量化任务（如果未在运行）"""
+    global _vector_task
+
+    if _vector_state.get("status") == VectorizeStatus.VECTORIZING:
+        return False
+
+    set_vector_state(
+        status=VectorizeStatus.PENDING,
         progress=0,
         total=0,
         current=0,
         error="",
     )
 
-    _sync_task = asyncio.create_task(_run_sync_task(config))
+    _vector_task = asyncio.create_task(_run_vectorize_task(config))
     return True
 
 
@@ -166,6 +249,24 @@ def cancel_sync_task() -> bool:
 
     set_sync_state(
         status=SyncStatus.PENDING,
+        error="已取消",
+    )
+    return True
+
+
+def cancel_vectorize_task() -> bool:
+    """取消向量化任务"""
+    global _vector_task
+
+    if _vector_state.get("status") != VectorizeStatus.VECTORIZING:
+        return False
+
+    if _vector_task:
+        _vector_task.cancel()
+        _vector_task = None
+
+    set_vector_state(
+        status=VectorizeStatus.PENDING,
         progress=0,
         error="已取消",
     )
@@ -182,13 +283,27 @@ def reset_sync_task() -> bool:
 
     set_sync_state(
         status=SyncStatus.PENDING,
+        error="",
+    )
+    return True
+
+
+def reset_vectorize_task() -> bool:
+    """重置向量化状态"""
+    global _vector_task
+
+    if _vector_task:
+        _vector_task.cancel()
+        _vector_task = None
+
+    set_vector_state(
+        status=VectorizeStatus.PENDING,
         progress=0,
         total=0,
         current=0,
         error="",
     )
     return True
-
 
 # ===== 路由处理器 =====
 
@@ -199,21 +314,24 @@ async def index_page(request: Request) -> HTMLResponse:
     storage = get_storage(config)
 
     state = get_sync_state()
-    total_projects = storage.count_projects()
+    vector_state = get_vector_state()
     synced_projects = storage.count_synced_projects()
+    vectorized_projects = storage.count_vectorized_projects()
 
     env = get_jinja_env()
     template = env.get_template("index.html")
 
     html = template.render(
         status=state["status"],
-        progress=state["progress"],
-        current=state["current"],
-        total=state["total"],
         error=state["error"],
+        vector_status=vector_state["status"],
+        vector_progress=vector_state["progress"],
+        vector_current=vector_state["current"],
+        vector_total=vector_state["total"],
+        vector_error=vector_state["error"],
         username=config.github_username,
-        total_projects=total_projects,
         synced_projects=synced_projects,
+        vectorized_projects=vectorized_projects,
         require_sync=config.server.require_sync,
     )
 
@@ -236,8 +354,9 @@ async def api_sync_status(request: Request) -> JSONResponse:
     storage = get_storage(config)
 
     state = get_sync_state()
-    state["total_projects"] = storage.count_projects()
     state["synced_projects"] = storage.count_synced_projects()
+    state["vectorized_projects"] = storage.count_vectorized_projects()
+    state["vector_status"] = get_vector_state()
 
     return JSONResponse(state)
 
@@ -255,6 +374,7 @@ async def api_sync_reset(request: Request) -> JSONResponse:
     config: Config = request.app.state.config
 
     reset_sync_task()
+    reset_vectorize_task()
 
     # 清空数据库和向量库
     storage = get_storage(config)
@@ -278,6 +398,36 @@ async def api_sync_reset(request: Request) -> JSONResponse:
     return JSONResponse({"message": "同步状态已重置", "status": get_sync_state()})
 
 
+async def api_vectorize_start(request: Request) -> JSONResponse:
+    """开始向量化"""
+    config: Config = request.app.state.config
+
+    if not start_vectorize_task(config):
+        return JSONResponse({"error": "向量化任务已在运行"}, status_code=400)
+
+    return JSONResponse({"message": "向量化已启动", "status": get_vector_state()})
+
+
+async def api_vectorize_status(request: Request) -> JSONResponse:
+    """查询向量化状态"""
+    config: Config = request.app.state.config
+    storage = get_storage(config)
+
+    state = get_vector_state()
+    state["total_projects"] = storage.count_projects()
+    state["synced_projects"] = storage.count_synced_projects()
+    state["vectorized_projects"] = storage.count_vectorized_projects()
+    return JSONResponse(state)
+
+
+async def api_vectorize_cancel(request: Request) -> JSONResponse:
+    """取消向量化"""
+    if not cancel_vectorize_task():
+        return JSONResponse({"error": "没有正在运行的向量化任务"}, status_code=400)
+
+    return JSONResponse({"message": "向量化已取消", "status": get_vector_state()})
+
+
 def create_web_app(config: Config, host: str = "0.0.0.0", port: int = 8080) -> Starlette:
     """创建 Web 应用"""
 
@@ -296,16 +446,21 @@ def create_web_app(config: Config, host: str = "0.0.0.0", port: int = 8080) -> S
         synced = storage.count_synced_projects()
         if synced > 0:
             set_sync_state(status=SyncStatus.COMPLETED)
+        vectorized = storage.count_vectorized_projects()
+        if vectorized > 0:
+            set_vector_state(status=VectorizeStatus.COMPLETED)
         yield
         # 清理
         if _sync_task:
             _sync_task.cancel()
+        if _vector_task:
+            _vector_task.cancel()
         await tools.close()
 
     async def mcp_handler(request: Request):
         """MCP 端点处理器"""
         # 检查同步状态
-        if config.server.require_sync and check_sync_required():
+        if config.server.require_sync and (check_sync_required() or check_vectorize_required()):
             return JSONResponse(
                 {
                     "error": "Sync Required",
@@ -325,6 +480,9 @@ def create_web_app(config: Config, host: str = "0.0.0.0", port: int = 8080) -> S
             Route("/api/sync/status", api_sync_status, methods=["GET"]),
             Route("/api/sync/cancel", api_sync_cancel, methods=["POST"]),
             Route("/api/sync/reset", api_sync_reset, methods=["POST"]),
+            Route("/api/vectorize/start", api_vectorize_start, methods=["POST"]),
+            Route("/api/vectorize/status", api_vectorize_status, methods=["GET"]),
+            Route("/api/vectorize/cancel", api_vectorize_cancel, methods=["POST"]),
         ],
         lifespan=lifespan,
     )
