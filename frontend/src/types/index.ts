@@ -6,6 +6,7 @@ export interface VectorState {
   progress: number;
   total: number;
   current: number;
+  error?: string;
 }
 
 export interface SyncState {
@@ -28,6 +29,7 @@ export interface InitialData {
   vector_progress: number;
   vector_current: number;
   vector_total: number;
+  vector_error?: string;
   username: string;
   synced_projects: number;
   synced_readme: number;

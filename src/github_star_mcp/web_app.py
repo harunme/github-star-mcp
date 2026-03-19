@@ -2,9 +2,12 @@
 import asyncio
 import contextlib
 import json
+import logging
 from enum import Enum
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.applications import Starlette
@@ -49,6 +52,7 @@ _vector_state: dict = {
     "progress": 0,
     "total": 0,
     "current": 0,
+    "error": None,
 }
 _vector_task: Optional[asyncio.Task] = None
 
@@ -165,53 +169,74 @@ async def _run_sync_task(config: Config) -> None:
 async def _run_vectorize_task(config: Config) -> None:
     """执行后台向量化任务（从 DB 读取，写入向量库）"""
     try:
-        set_vector_state(
-            status=VectorizeStatus.VECTORIZING,
-            current=0,
-        )
-
         tools = MCPTools(config)
         storage = get_storage(config)
 
-        # 统计待向量化总数（用于百分比进度）
-        total = 0
-        offset = 0
-        batch = storage.list_unvectorized_projects(limit=500, offset=offset)
-        while batch:
-            total += len(batch)
-            offset += len(batch)
-            batch = storage.list_unvectorized_projects(limit=500, offset=offset)
+        # 用 SQLite 真实已向量化数作为起点（防止中途重启导致计数不一致）
+        total_remaining = storage.count_projects() - storage.count_vectorized_projects()
+        if total_remaining <= 0:
+            set_vector_state(
+                status=VectorizeStatus.COMPLETED,
+                progress=100,
+                current=storage.count_vectorized_projects(),
+                total=storage.count_vectorized_projects(),
+            )
+            await tools.close()
+            return
 
-        set_vector_state(total=total, progress=0)
+        set_vector_state(
+            status=VectorizeStatus.VECTORIZING,
+            current=0,
+            total=total_remaining,
+            progress=0,
+        )
 
         count = 0
         offset = 0
+        batch_size = 100
         while True:
-            projects = storage.list_unvectorized_projects(limit=100, offset=offset)
+            projects = storage.list_unvectorized_projects(limit=batch_size, offset=0)
             if not projects:
                 break
 
             for project in projects:
-                vector_id = await tools.vector_store.add_project(project)
-                storage.mark_vectorized(project.id, vector_id)
-                count += 1
+                try:
+                    vector_id = await tools.vector_store.add_project(project)
+                    storage.mark_vectorized(project.id, vector_id)
+                    count += 1
+                except Exception as proj_err:
+                    logger.warning("项目 %s 向量化失败，跳过: %s", project.full_name, proj_err)
+
+                # 每次更新都查真实计数，确保进度准确
+                current_done = storage.count_vectorized_projects()
                 set_vector_state(
                     current=count,
-                    progress=int(count / max(total, 1) * 100),
+                    total=total_remaining,
+                    progress=int(count / max(total_remaining, 1) * 100),
                 )
 
             offset += len(projects)
 
         await tools.close()
 
+        final_count = storage.count_vectorized_projects()
         set_vector_state(
             status=VectorizeStatus.COMPLETED,
             progress=100,
-            current=count,
-            total=total,
+            current=final_count,
+            total=final_count,
         )
-    except Exception:
-        set_vector_state(status=VectorizeStatus.PENDING)
+    except Exception as e:
+        error_msg = str(e)
+        logger.exception("向量化任务失败: %s", error_msg)
+        # 保留已处理的计数，重启时能从断点继续
+        storage = get_storage(config)
+        current_done = storage.count_vectorized_projects()
+        set_vector_state(
+            status=VectorizeStatus.PENDING,
+            error=error_msg,
+            current=current_done,
+        )
 
 
 def start_sync_task(config: Config) -> bool:
@@ -446,8 +471,6 @@ async def api_sync_reset(request: Request) -> JSONResponse:
 
     # 清空数据库和向量库
     storage = get_storage(config)
-    from .vector_store import COLLECTION_NAME
-    from qdrant_client import QdrantClient
 
     # 清空 SQLite
     from .storage import Project
@@ -456,12 +479,10 @@ async def api_sync_reset(request: Request) -> JSONResponse:
         session.execute(delete(Project))
         session.commit()
 
-    # 清空 Qdrant
-    client = QdrantClient(host=config.qdrant.host, port=config.qdrant.port)
-    try:
-        client.delete_collection(collection_name=COLLECTION_NAME)
-    except Exception:
-        pass  # collection 可能不存在
+    # 清空 LanceDB
+    from .vector_store import create_vector_store
+    vs = create_vector_store(config)
+    vs.clear()
 
     return JSONResponse({"message": "同步状态已重置", "status": get_sync_state()})
 
@@ -517,7 +538,9 @@ def create_web_app(config: Config, host: str = "0.0.0.0", port: int = 8080) -> S
         vectorized = storage.count_vectorized_projects()
         if vectorized > 0:
             set_vector_state(status=VectorizeStatus.COMPLETED)
-        yield
+        # 启动 MCP session manager
+        async with session_manager.run():
+            yield
         # 清理
         if _sync_task:
             _sync_task.cancel()
@@ -538,7 +561,7 @@ def create_web_app(config: Config, host: str = "0.0.0.0", port: int = 8080) -> S
                 status_code=403,
             )
 
-        return await session_manager.handle_request(request.scope, request.receive)
+        return await session_manager.handle_request(request.scope, request.receive, request._send)
 
     app = Starlette(
         routes=[

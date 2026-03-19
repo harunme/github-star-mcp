@@ -41,6 +41,7 @@ export async function fetchInitialData(): Promise<InitialData> {
       vector_progress: state.vector_status?.progress || 0,
       vector_current: state.vector_status?.current || 0,
       vector_total: state.vector_status?.total || 0,
+      vector_error: state.vector_status?.error || undefined,
       username: '',
       synced_projects: state.synced_projects || 0,
       synced_readme: state.synced_readme || 0,

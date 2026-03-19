@@ -8,13 +8,6 @@ from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-class QdrantConfig(BaseModel):
-    """Qdrant 配置"""
-    host: str = "localhost"
-    port: int = 6333
-    vector_size: int = 384  # sentence-transformers default
-
-
 class GiteaConfig(BaseModel):
     """Gitea 配置"""
     url: str = "http://localhost:3000"
@@ -47,9 +40,6 @@ class Config(BaseSettings):
     github_token: str = ""
     github_username: str = ""
 
-    # Qdrant 配置
-    qdrant: QdrantConfig = QdrantConfig()
-
     # Gitea 配置
     gitea: GiteaConfig = GiteaConfig()
 
@@ -67,6 +57,11 @@ class Config(BaseSettings):
     def db_path(self) -> Path:
         """获取数据库完整路径"""
         return Path(self.database.path).expanduser()
+
+    @property
+    def vector_db_path(self) -> Path:
+        """获取 LanceDB 向量库路径"""
+        return self.db_path.parent / "vectors"
 
     @classmethod
     def load_from_yaml(cls, path: Path) -> "Config":

@@ -26,11 +26,6 @@ from .tools import run_server
     help="GitHub 用户名",
 )
 @click.option(
-    "--qdrant-host",
-    default=None,
-    help="Qdrant 主机",
-)
-@click.option(
     "--gitea-url",
     default=None,
     help="Gitea URL",
@@ -77,7 +72,6 @@ def main(
     config_path: str | None,
     github_token: str | None,
     github_username: str | None,
-    qdrant_host: str | None,
     gitea_url: str | None,
     gitea_token: str | None,
     gitea_username: str | None,
@@ -96,8 +90,6 @@ def main(
         config.github_token = github_token
     if github_username:
         config.github_username = github_username
-    if qdrant_host:
-        config.qdrant.host = qdrant_host
     if gitea_url:
         config.gitea.url = gitea_url
     if gitea_token:

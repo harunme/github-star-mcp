@@ -1,46 +1,68 @@
-"""Qdrant 向量存储模块"""
+"""LanceDB 向量存储模块"""
 import uuid
+from pathlib import Path
 from typing import Optional
 
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, PointStruct, VectorParams
+import numpy as np
 
-from .config import QdrantConfig
+from .config import Config
 from .storage import Project
 
-COLLECTION_NAME = "github_stars"
+TABLE_NAME = "github_stars"
+VECTOR_SIZE = 384  # sentence-transformers all-MiniLM-L6-v2
 
 
 class VectorStore:
-    """Qdrant 向量存储"""
+    """LanceDB 向量存储"""
 
-    def __init__(self, config: QdrantConfig):
-        self.config = config
-        self._client: Optional[QdrantClient] = None
+    def __init__(self, db_path: Path):
+        self.db_path = db_path
+        self._db = None
         self._embedding_model = None
 
-    async def _get_client(self) -> QdrantClient:
-        if self._client is None:
-            self._client = QdrantClient(host=self.config.host, port=self.config.port)
-            # 确保 collection 存在
-            collections = self._client.get_collections().collections
-            collection_names = [c.name for c in collections]
-            if COLLECTION_NAME not in collection_names:
-                self._client.create_collection(
-                    collection_name=COLLECTION_NAME,
-                    vectors_config=VectorParams(
-                        size=self.config.vector_size,
-                        distance=Distance.COSINE,
-                    ),
-                )
-        return self._client
+    def _get_db(self):
+        """获取 LanceDB 连接"""
+        if self._db is None:
+            import lancedb
+
+            self.db_path.mkdir(parents=True, exist_ok=True)
+            self._db = lancedb.connect(str(self.db_path))
+        return self._db
+
+    def _get_table(self):
+        """获取向量表，不存在则创建"""
+        db = self._get_db()
+        names = db.table_names()
+        if TABLE_NAME not in names:
+            import lancedb
+            import pyarrow as pa
+
+            schema = pa.schema([
+                pa.field("id", pa.string()),
+                pa.field("project_id", pa.int32()),
+                pa.field("full_name", pa.string()),
+                pa.field("name", pa.string()),
+                pa.field("description", pa.string()),
+                pa.field("language", pa.string()),
+                pa.field("topics", pa.string()),
+                pa.field("html_url", pa.string()),
+                pa.field("vector", pa.list_(pa.float32(), VECTOR_SIZE)),
+            ])
+            db.create_table(TABLE_NAME, schema=schema)
+
+            # 创建向量索引
+            tbl = db.open_table(TABLE_NAME)
+            tbl.create_index(
+                vector_column_name="vector",
+                index_type="HNSW",
+            )
+        return db.open_table(TABLE_NAME)
 
     def _get_embedding_model(self):
         """获取 embedding 模型 (延迟加载)"""
         if self._embedding_model is None:
             from sentence_transformers import SentenceTransformer
 
-            # 使用轻量级模型
             self._embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
         return self._embedding_model
 
@@ -57,37 +79,30 @@ class VectorStore:
 
     async def add_project(self, project: Project) -> str:
         """添加项目到向量库"""
-        client = await self._get_client()
         model = self._get_embedding_model()
+        table = self._get_table()
 
         # 创建向量
         text = self._create_text(project)
         vector = model.encode(text).tolist()
 
         # 生成唯一 ID
-        point_id = str(uuid.uuid4())
+        vector_id = str(uuid.uuid4())
 
-        # 添加到 Qdrant
-        client.upsert(
-            collection_name=COLLECTION_NAME,
-            points=[
-                PointStruct(
-                    id=point_id,
-                    vector=vector,
-                    payload={
-                        "project_id": project.id,
-                        "full_name": project.full_name,
-                        "name": project.name,
-                        "description": project.description,
-                        "language": project.language,
-                        "topics": project.topics,
-                        "html_url": project.html_url,
-                    },
-                )
-            ],
-        )
+        # 添加到 LanceDB
+        table.add([{
+            "id": vector_id,
+            "project_id": project.id,
+            "full_name": project.full_name,
+            "name": project.name,
+            "description": project.description or "",
+            "language": project.language or "",
+            "topics": project.topics or "",
+            "html_url": project.html_url,
+            "vector": vector,
+        }])
 
-        return point_id
+        return vector_id
 
     async def search(
         self,
@@ -96,60 +111,49 @@ class VectorStore:
         language: Optional[str] = None,
     ) -> list[dict]:
         """向量搜索"""
-        client = await self._get_client()
         model = self._get_embedding_model()
+        table = self._get_table()
 
         # 创建查询向量
         vector = model.encode(query).tolist()
 
         # 搜索
-        results = client.search(
-            collection_name=COLLECTION_NAME,
-            query_vector=vector,
-            limit=limit,
-            query_filter=None,  # 可以添加过滤条件
-        )
+        results = table.search(vector, vector_column_name="vector").limit(limit).to_list()
 
         return [
             {
-                "id": result.id,
-                "score": result.score,
-                "payload": result.payload,
+                "id": r["id"],
+                "score": r.get("_score") or (1 - r["_distance"]) if "_distance" in r else None,
+                "payload": {k: v for k, v in r.items() if k not in ("id", "vector", "_distance")},
             }
-            for result in results
+            for r in results
         ]
 
     async def delete_project(self, project_id: int) -> None:
         """删除项目"""
-        client = await self._get_client()
-        # 需要先查询找到对应的 point_id
-        results = client.scroll(
-            collection_name=COLLECTION_NAME,
-            scroll_filter={
-                "must": [{"key": "project_id", "match": {"value": project_id}}]
-            },
-        )
-        if results[0]:
-            client.delete(
-                collection_name=COLLECTION_NAME,
-                points_selector=[r.id for r in results[0]],
-            )
+        table = self._get_table()
+        table.delete(f"project_id = {project_id}")
 
     async def get_point_by_project_id(self, project_id: int) -> Optional[str]:
         """通过项目 ID 获取向量 ID"""
-        client = await self._get_client()
-        results = client.scroll(
-            collection_name=COLLECTION_NAME,
-            scroll_filter={
-                "must": [{"key": "project_id", "match": {"value": project_id}}]
-            },
-            limit=1,
-        )
-        if results[0]:
-            return results[0][0].id
+        table = self._get_table()
+        results = table.search(
+            [0.0] * VECTOR_SIZE,
+            vector_column_name="vector",
+        ).where(f"project_id = {project_id}").limit(1).to_list()
+
+        if results:
+            return results[0]["id"]
         return None
 
+    def clear(self) -> None:
+        """清空向量库"""
+        db = self._get_db()
+        names = db.table_names()
+        if TABLE_NAME in names:
+            db.drop_table(TABLE_NAME)
 
-def create_vector_store(config: QdrantConfig) -> VectorStore:
+
+def create_vector_store(config: Config) -> VectorStore:
     """创建向量存储实例"""
-    return VectorStore(config)
+    return VectorStore(config.vector_db_path)

@@ -5,6 +5,7 @@ interface Props {
   progress: number;
   current: number;
   total: number;
+  error?: string;
   onStart?: () => void;
   onCancel?: () => void;
   canStart: boolean;
@@ -22,6 +23,7 @@ export function VectorStatusCard({
   progress,
   current,
   total,
+  error,
   onStart,
   onCancel,
   canStart,
@@ -46,6 +48,12 @@ export function VectorStatusCard({
       {status === 'completed' && (
         <div className="success-message">
           向量化已完成，可以使用 MCP 搜索/问答功能。
+        </div>
+      )}
+
+      {error && (
+        <div className="error-message" style={{ marginTop: '12px', padding: '10px', background: '#fee2e2', borderRadius: '6px', color: '#dc2626' }}>
+          <strong>向量化失败:</strong> {error}
         </div>
       )}
 

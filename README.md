@@ -34,10 +34,6 @@ cp config.yaml.example ~/.github-star-mcp/config.yaml
 github_token: your_github_token
 github_username: your_username
 
-qdrant:
-  host: localhost
-  port: 6333
-
 gitea:
   url: http://localhost:3000
   token: your_gitea_token
@@ -78,7 +74,7 @@ Add the following to `~/Library/Application Support/Claude/claude_desktop_config
 
 ## Dependencies
 
-- **Qdrant** - Vector database (default localhost:6333)
+- **LanceDB** - Embedded vector database (auto-created at `~/.github-star-mcp/vectors/`)
 - **Gitea** - Optional, for backup
 - **SQLite** - Auto-created, for local storage
 - **Anthropic API** - Optional, for RAG Q&A

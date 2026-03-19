@@ -20,7 +20,7 @@ class MCPTools:
     def __init__(self, config: Config):
         self.config = config
         self.storage = Storage(config.db_path)
-        self.vector_store = create_vector_store(config.qdrant)
+        self.vector_store = create_vector_store(config)
         self.github_client: Optional[GitHubClient] = None
         self.gitea_client: Optional[GiteaClient] = None
         self.rag: Optional[RAG] = None

@@ -27,6 +27,7 @@ function App() {
           progress: data.vector_progress,
           total: data.vector_total,
           current: data.vector_current,
+          error: data.vector_error,
         },
       });
     });
@@ -61,7 +62,6 @@ function App() {
         alert(result.error);
         return;
       }
-      window.location.reload();
     } catch (err) {
       alert('启动同步失败，请重试');
     }
@@ -95,7 +95,7 @@ function App() {
         alert(result.error);
         return;
       }
-      window.location.reload();
+      // Don't reload - let polling update state naturally
     } catch (err) {
       alert('启动向量化失败，请重试');
     }
@@ -143,6 +143,7 @@ function App() {
         progress={state.vector_status.progress}
         current={state.vector_status.current}
         total={state.vector_status.total}
+        error={state.vector_status.error}
         onStart={handleStartVectorize}
         onCancel={handleCancelVectorize}
         canStart={canStartVectorize}
