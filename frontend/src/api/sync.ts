@@ -20,13 +20,7 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export async function fetchInitialData(): Promise<InitialData> {
-  // Read from window.__INITIAL_DATA__ injected by the server
-  const data = (window as unknown as { __INITIAL_DATA__?: InitialData }).__INITIAL_DATA__;
-  if (data) {
-    return data;
-  }
-
-  // Fallback: fetch from API
+  // Always fetch fresh data from API to get accurate counts
   try {
     const response = await fetch(`${API_BASE}/sync/status`);
     if (!response.ok) {
@@ -37,9 +31,9 @@ export async function fetchInitialData(): Promise<InitialData> {
       throw new Error('Empty response');
     }
     const state = JSON.parse(text);
+    console.log('[fetchInitialData] API response:', state);
     return {
       status: state.status || 'pending',
-      error: state.error || '',
       readme_total: state.readme_total || 0,
       readme_current: state.readme_current || 0,
       readme_progress: state.readme_progress || 0,
@@ -47,9 +41,9 @@ export async function fetchInitialData(): Promise<InitialData> {
       vector_progress: state.vector_status?.progress || 0,
       vector_current: state.vector_status?.current || 0,
       vector_total: state.vector_status?.total || 0,
-      vector_error: state.vector_status?.error || '',
       username: '',
       synced_projects: state.synced_projects || 0,
+      synced_readme: state.synced_readme || 0,
       vectorized_projects: state.vectorized_projects || 0,
       require_sync: true,
     };
@@ -57,7 +51,6 @@ export async function fetchInitialData(): Promise<InitialData> {
     // Return default values if API fails
     return {
       status: 'pending',
-      error: '',
       readme_total: 0,
       readme_current: 0,
       readme_progress: 0,
@@ -65,9 +58,9 @@ export async function fetchInitialData(): Promise<InitialData> {
       vector_progress: 0,
       vector_current: 0,
       vector_total: 0,
-      vector_error: '',
       username: '',
       synced_projects: 0,
+      synced_readme: 0,
       vectorized_projects: 0,
       require_sync: true,
     };

@@ -166,6 +166,12 @@ class Storage:
             statement = select(Project).where(Project.vector_id.isnot(None))
             return len(list(session.exec(statement).all()))
 
+    def count_readme_projects(self) -> int:
+        """统计已同步 README 的项目数量"""
+        with self.get_session() as session:
+            statement = select(Project).where(Project.readme_content.isnot(None))
+            return len(list(session.exec(statement).all()))
+
     def list_unvectorized_projects(
         self,
         limit: int = 100,

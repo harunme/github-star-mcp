@@ -32,18 +32,5 @@ export function ActionButtons({ status, onStart, onCancel, onReset }: Props) {
     );
   }
 
-  if (status === 'failed') {
-    return (
-      <>
-        <button className="btn btn-primary" onClick={onStart}>
-          <span>↻</span> 重试同步
-        </button>
-        <button className="btn btn-secondary" onClick={onReset} style={{ marginTop: '8px' }}>
-          <span>🗑</span> 清空数据并重新开始
-        </button>
-      </>
-    );
-  }
-
   return null;
 }

@@ -25,7 +25,6 @@ class SyncStatus(str, Enum):
     SYNCING = "syncing"
     LOADING_README = "loading_readme"
     COMPLETED = "completed"
-    FAILED = "failed"
 
 
 class VectorizeStatus(str, Enum):
@@ -33,13 +32,11 @@ class VectorizeStatus(str, Enum):
     PENDING = "pending"
     VECTORIZING = "vectorizing"
     COMPLETED = "completed"
-    FAILED = "failed"
 
 
 # 全局同步状态管理
 _sync_state: dict = {
     "status": SyncStatus.PENDING,
-    "error": "",
     "synced_projects": 0,
     "readme_total": 0,
     "readme_current": 0,
@@ -52,7 +49,6 @@ _vector_state: dict = {
     "progress": 0,
     "total": 0,
     "current": 0,
-    "error": "",
 }
 _vector_task: Optional[asyncio.Task] = None
 
@@ -86,14 +82,13 @@ def check_sync_required() -> bool:
     """检查是否需要同步"""
     return _sync_state.get("status") in (
         SyncStatus.PENDING,
-        SyncStatus.FAILED,
         SyncStatus.LOADING_README,
     )
 
 
 def check_vectorize_required() -> bool:
     """检查是否需要向量化"""
-    return _vector_state.get("status") in (VectorizeStatus.PENDING, VectorizeStatus.FAILED)
+    return _vector_state.get("status") == VectorizeStatus.PENDING
 
 
 # ===== 同步任务 =====
@@ -101,10 +96,11 @@ def check_vectorize_required() -> bool:
 
 async def _run_sync_task(config: Config) -> None:
     """执行后台同步任务（两阶段：仓库同步 + README 加载）"""
+async def _run_sync_task(config: Config) -> None:
+    """执行后台同步任务（两阶段：仓库同步 + README 加载）"""
     try:
         set_sync_state(
             status=SyncStatus.SYNCING,
-            error="",
             synced_projects=0,
             readme_total=0,
             readme_current=0,
@@ -157,16 +153,13 @@ async def _run_sync_task(config: Config) -> None:
 
         set_sync_state(
             status=SyncStatus.COMPLETED,
-            error="",
+            synced_projects=count,
             readme_total=total,
             readme_current=total,
             readme_progress=100,
         )
     except Exception as e:
-        set_sync_state(
-            status=SyncStatus.FAILED,
-            error=str(e),
-        )
+        set_sync_state(status=SyncStatus.PENDING)
 
 
 async def _run_vectorize_task(config: Config) -> None:
@@ -174,7 +167,6 @@ async def _run_vectorize_task(config: Config) -> None:
     try:
         set_vector_state(
             status=VectorizeStatus.VECTORIZING,
-            error="",
             current=0,
         )
 
@@ -217,13 +209,9 @@ async def _run_vectorize_task(config: Config) -> None:
             progress=100,
             current=count,
             total=total,
-            error="",
         )
-    except Exception as e:
-        set_vector_state(
-            status=VectorizeStatus.FAILED,
-            error=str(e),
-        )
+    except Exception:
+        set_vector_state(status=VectorizeStatus.PENDING)
 
 
 def start_sync_task(config: Config) -> bool:
@@ -236,7 +224,6 @@ def start_sync_task(config: Config) -> bool:
     # 重置状态
     set_sync_state(
         status=SyncStatus.PENDING,
-        error="",
         synced_projects=0,
         readme_total=0,
         readme_current=0,
@@ -259,7 +246,6 @@ def start_vectorize_task(config: Config) -> bool:
         progress=0,
         total=0,
         current=0,
-        error="",
     )
 
     _vector_task = asyncio.create_task(_run_vectorize_task(config))
@@ -279,7 +265,6 @@ def cancel_sync_task() -> bool:
 
     set_sync_state(
         status=SyncStatus.PENDING,
-        error="已取消",
     )
     return True
 
@@ -298,7 +283,6 @@ def cancel_vectorize_task() -> bool:
     set_vector_state(
         status=VectorizeStatus.PENDING,
         progress=0,
-        error="已取消",
     )
     return True
 
@@ -313,7 +297,6 @@ def reset_sync_task() -> bool:
 
     set_sync_state(
         status=SyncStatus.PENDING,
-        error="",
         synced_projects=0,
         readme_total=0,
         readme_current=0,
@@ -335,7 +318,6 @@ def reset_vectorize_task() -> bool:
         progress=0,
         total=0,
         current=0,
-        error="",
     )
     return True
 
@@ -355,11 +337,11 @@ async def index_page(request: Request) -> Response:
     state = get_sync_state()
     vector_state = get_vector_state()
     synced_projects = storage.count_synced_projects()
+    synced_readme = storage.count_readme_projects()
     vectorized_projects = storage.count_vectorized_projects()
 
     initial_data = {
         "status": state["status"],
-        "error": state["error"],
         "readme_total": state.get("readme_total", 0),
         "readme_current": state.get("readme_current", 0),
         "readme_progress": state.get("readme_progress", 0),
@@ -367,9 +349,9 @@ async def index_page(request: Request) -> Response:
         "vector_progress": vector_state["progress"],
         "vector_current": vector_state["current"],
         "vector_total": vector_state["total"],
-        "vector_error": vector_state["error"],
         "username": config.github_username,
         "synced_projects": synced_projects,
+        "synced_readme": synced_readme,
         "vectorized_projects": vectorized_projects,
         "require_sync": config.server.require_sync,
     }
@@ -436,6 +418,7 @@ async def api_sync_status(request: Request) -> JSONResponse:
 
     state = get_sync_state()
     state["synced_projects"] = storage.count_synced_projects()
+    state["synced_readme"] = storage.count_readme_projects()
     state["vectorized_projects"] = storage.count_vectorized_projects()
     state["vector_status"] = get_vector_state()
     # 返回 readme 加载进度字段

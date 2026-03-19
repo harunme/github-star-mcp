@@ -1,18 +1,17 @@
-export type SyncStatus = 'pending' | 'syncing' | 'loading_readme' | 'completed' | 'failed';
-export type VectorStatus = 'pending' | 'vectorizing' | 'completed' | 'failed';
+export type SyncStatus = 'pending' | 'syncing' | 'loading_readme' | 'completed';
+export type VectorStatus = 'pending' | 'vectorizing' | 'completed';
 
 export interface VectorState {
   status: VectorStatus;
   progress: number;
   total: number;
   current: number;
-  error: string;
 }
 
 export interface SyncState {
   status: SyncStatus;
-  error: string;
   synced_projects: number;
+  synced_readme: number;
   readme_total: number;
   readme_current: number;
   readme_progress: number;
@@ -22,7 +21,6 @@ export interface SyncState {
 
 export interface InitialData {
   status: SyncStatus;
-  error: string;
   readme_total: number;
   readme_current: number;
   readme_progress: number;
@@ -30,9 +28,9 @@ export interface InitialData {
   vector_progress: number;
   vector_current: number;
   vector_total: number;
-  vector_error: string;
   username: string;
   synced_projects: number;
+  synced_readme: number;
   vectorized_projects: number;
   require_sync: boolean;
 }

@@ -16,8 +16,8 @@ function App() {
       setInitialData(data);
       setState({
         status: data.status,
-        error: data.error,
         synced_projects: data.synced_projects,
+        synced_readme: data.synced_readme,
         readme_total: data.readme_total,
         readme_current: data.readme_current,
         readme_progress: data.readme_progress,
@@ -27,7 +27,6 @@ function App() {
           progress: data.vector_progress,
           total: data.vector_total,
           current: data.vector_current,
-          error: data.vector_error,
         },
       });
     });
@@ -41,11 +40,11 @@ function App() {
       const data = await fetchStatus();
       setState(data);
 
-      // If completed or failed, reload the page
-      if (data.status === 'completed' || data.status === 'failed') {
+      // If completed, reload the page
+      if (data.status === 'completed') {
         window.location.reload();
       }
-      if (data.vector_status.status === 'completed' || data.vector_status.status === 'failed') {
+      if (data.vector_status.status === 'completed') {
         window.location.reload();
       }
     } catch (err) {
@@ -122,7 +121,7 @@ function App() {
   }
 
   const syncCompleted = state.status === 'completed';
-  const canStartVectorize = syncCompleted && (state.vector_status.status === 'pending' || state.vector_status.status === 'failed');
+  const canStartVectorize = syncCompleted && state.vector_status.status === 'pending';
   const isVectorizing = state.vector_status.status === 'vectorizing';
 
   return (
@@ -135,11 +134,8 @@ function App() {
       <SyncStatusCard
         status={state.status}
         syncedProjects={state.synced_projects}
+        syncedReadme={state.synced_readme}
         vectorizedProjects={state.vectorized_projects}
-        readmeProgress={state.readme_progress}
-        readmeCurrent={state.readme_current}
-        readmeTotal={state.readme_total}
-        error={state.error}
       />
 
       <VectorStatusCard
@@ -147,7 +143,6 @@ function App() {
         progress={state.vector_status.progress}
         current={state.vector_status.current}
         total={state.vector_status.total}
-        error={state.vector_status.error}
         onStart={handleStartVectorize}
         onCancel={handleCancelVectorize}
         canStart={canStartVectorize}

@@ -5,7 +5,6 @@ interface Props {
   progress: number;
   current: number;
   total: number;
-  error?: string;
   onStart?: () => void;
   onCancel?: () => void;
   canStart: boolean;
@@ -16,7 +15,6 @@ const statusLabels: Record<VectorStatus, string> = {
   pending: '等待向量化',
   vectorizing: '向量化中',
   completed: '向量化完成',
-  failed: '向量化失败',
 };
 
 export function VectorStatusCard({
@@ -24,7 +22,6 @@ export function VectorStatusCard({
   progress,
   current,
   total,
-  error,
   onStart,
   onCancel,
   canStart,
@@ -33,7 +30,7 @@ export function VectorStatusCard({
   return (
     <div className="status-card">
       <h2>
-        <span className={`status-icon ${status === 'vectorizing' ? 'syncing' : status === 'completed' ? 'completed' : status === 'failed' ? 'failed' : 'pending'}`}></span>
+        <span className={`status-icon ${status === 'vectorizing' ? 'syncing' : status === 'completed' ? 'completed' : 'pending'}`}></span>
         <span>{statusLabels[status]}</span>
       </h2>
 
@@ -45,12 +42,6 @@ export function VectorStatusCard({
           {current} / {total > 0 ? total : '?'} 个项目
         </div>
       </div>
-
-      {error && status === 'failed' && (
-        <div className="error-message">
-          <strong>向量化失败:</strong> {error}
-        </div>
-      )}
 
       {status === 'completed' && (
         <div className="success-message">
