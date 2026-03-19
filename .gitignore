@@ -44,3 +44,8 @@ htmlcov/
 
 # Runtime / local data
 qdrant_storage/
+
+# React frontend
+frontend/node_modules/
+frontend/dist/
+src/github_star_mcp/static/

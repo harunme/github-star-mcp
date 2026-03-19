@@ -1,16 +1,17 @@
 """Web 引导页面 + MCP HTTP 代理"""
 import asyncio
 import contextlib
+import json
 from enum import Enum
 from pathlib import Path
 from typing import Optional
 
-from jinja2 import Environment, FileSystemLoader, select_autoescape
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse
+from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Mount, Route
+from starlette.staticfiles import StaticFiles
 import uvicorn
 
 from .config import Config
@@ -54,20 +55,6 @@ _vector_state: dict = {
     "error": "",
 }
 _vector_task: Optional[asyncio.Task] = None
-
-
-def get_templates_dir() -> Path:
-    """获取模板目录"""
-    return Path(__file__).parent / "templates"
-
-
-def get_jinja_env() -> Environment:
-    """获取 Jinja 环境"""
-    templates_dir = get_templates_dir()
-    return Environment(
-        loader=FileSystemLoader(str(templates_dir)),
-        autoescape=select_autoescape(["html", "xml"]),
-    )
 
 
 def get_storage(config: Config) -> Storage:
@@ -355,8 +342,13 @@ def reset_vectorize_task() -> bool:
 # ===== 路由处理器 =====
 
 
-async def index_page(request: Request) -> HTMLResponse:
-    """渲染引导页面"""
+def get_static_dir() -> Path:
+    """获取静态文件目录"""
+    return Path(__file__).parent / "static"
+
+
+async def index_page(request: Request) -> Response:
+    """渲染 React 引导页面"""
     config: Config = request.app.state.config
     storage = get_storage(config)
 
@@ -365,27 +357,66 @@ async def index_page(request: Request) -> HTMLResponse:
     synced_projects = storage.count_synced_projects()
     vectorized_projects = storage.count_vectorized_projects()
 
-    env = get_jinja_env()
-    template = env.get_template("index.html")
+    initial_data = {
+        "status": state["status"],
+        "error": state["error"],
+        "readme_total": state.get("readme_total", 0),
+        "readme_current": state.get("readme_current", 0),
+        "readme_progress": state.get("readme_progress", 0),
+        "vector_status": vector_state["status"],
+        "vector_progress": vector_state["progress"],
+        "vector_current": vector_state["current"],
+        "vector_total": vector_state["total"],
+        "vector_error": vector_state["error"],
+        "username": config.github_username,
+        "synced_projects": synced_projects,
+        "vectorized_projects": vectorized_projects,
+        "require_sync": config.server.require_sync,
+    }
 
-    html = template.render(
-        status=state["status"],
-        error=state["error"],
-        readme_total=state.get("readme_total", 0),
-        readme_current=state.get("readme_current", 0),
-        readme_progress=state.get("readme_progress", 0),
-        vector_status=vector_state["status"],
-        vector_progress=vector_state["progress"],
-        vector_current=vector_state["current"],
-        vector_total=vector_state["total"],
-        vector_error=vector_state["error"],
-        username=config.github_username,
-        synced_projects=synced_projects,
-        vectorized_projects=vectorized_projects,
-        require_sync=config.server.require_sync,
-    )
+    # Read the React index.html
+    static_dir = get_static_dir()
+    index_path = static_dir / "index.html"
 
-    return HTMLResponse(html)
+    if index_path.exists():
+        # Read the HTML and inject initial data
+        html = index_path.read_text(encoding="utf-8")
+        # Inject initial data as a script tag
+        script = f'<script>window.__INITIAL_DATA__ = {json.dumps(initial_data)};</script>'
+        # Insert before the closing </head> or </body>
+        html = html.replace("</head>", f"{script}</head>")
+        return Response(content=html, media_type="text/html")
+    else:
+        # Fallback: Return a simple HTML page if React hasn't been built
+        fallback_html = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Stars MCP Server</title>
+    <style>
+        body {{ font-family: -apple-system, sans-serif; background: #0d1117; color: #c9d1d9; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }}
+        .container {{ background: #21262d; padding: 40px; border-radius: 16px; text-align: center; max-width: 500px; }}
+        h1 {{ color: #f0f6fc; }}
+        p {{ color: #8b949e; margin: 20px 0; }}
+        .cmd {{ background: #161b22; padding: 16px; border-radius: 8px; font-family: monospace; text-align: left; margin: 20px 0; }}
+        code {{ color: #58a6ff; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>GitHub Stars MCP Server</h1>
+        <p>用户: {config.github_username}</p>
+        <div class="cmd">
+            <code>cd frontend && npm install && npm run build</code>
+        </div>
+        <p>请先构建 React 前端后再访问此页面</p>
+    </div>
+    <script>window.__INITIAL_DATA__ = {json.dumps(initial_data)};</script>
+</body>
+</html>
+"""
+        return Response(content=fallback_html, media_type="text/html")
 
 
 async def api_sync_start(request: Request) -> JSONResponse:
@@ -537,7 +568,7 @@ def create_web_app(config: Config, host: str = "0.0.0.0", port: int = 8080) -> S
             Route("/api/vectorize/start", api_vectorize_start, methods=["POST"]),
             Route("/api/vectorize/status", api_vectorize_status, methods=["GET"]),
             Route("/api/vectorize/cancel", api_vectorize_cancel, methods=["POST"]),
-        ],
+        ] + ([Mount("/assets", app=StaticFiles(directory=str(get_static_dir() / "assets")), packages=None)] if (get_static_dir() / "assets").exists() else []),
         lifespan=lifespan,
     )
 
