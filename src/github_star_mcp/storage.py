@@ -3,7 +3,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from sqlmodel import Field, Session, SQLModel, create_engine, select
+from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
+
+from .groups.models import Group, ProjectGroup  # noqa: F401
 
 
 class Project(SQLModel, table=True):
@@ -33,6 +35,9 @@ class Project(SQLModel, table=True):
     # Gitea 备份状态
     backed_up_at: Optional[datetime] = Field(default=None)
     gitea_repo_url: Optional[str] = Field(default=None)
+
+    # 关系
+    group_associations: list["ProjectGroup"] = Relationship(back_populates="project")
 
 
 class Storage:

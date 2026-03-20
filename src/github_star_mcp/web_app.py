@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 import uvicorn
@@ -20,6 +20,10 @@ import uvicorn
 from .config import Config
 from .storage import Storage
 from .tools import MCPTools, create_server
+from .settings import get_settings, save_settings, mask_sensitive_config, AppSettings
+from .groups import GroupService
+from .agent import GitHubStarsAgent
+from .health import HealthChecker
 
 
 class SyncStatus(str, Enum):
@@ -55,6 +59,9 @@ _vector_state: dict = {
     "error": None,
 }
 _vector_task: Optional[asyncio.Task] = None
+
+# 全局 Agent 实例
+_agent: Optional[GitHubStarsAgent] = None
 
 
 def get_storage(config: Config) -> Storage:
@@ -95,11 +102,17 @@ def check_vectorize_required() -> bool:
     return _vector_state.get("status") == VectorizeStatus.PENDING
 
 
+def get_agent(config: Config) -> GitHubStarsAgent:
+    """获取 Agent 实例"""
+    global _agent
+    if _agent is None:
+        _agent = GitHubStarsAgent(config)
+    return _agent
+
+
 # ===== 同步任务 =====
 
 
-async def _run_sync_task(config: Config) -> None:
-    """执行后台同步任务（两阶段：仓库同步 + README 加载）"""
 async def _run_sync_task(config: Config) -> None:
     """执行后台同步任务（两阶段：仓库同步 + README 加载）"""
     try:
@@ -163,6 +176,7 @@ async def _run_sync_task(config: Config) -> None:
             readme_progress=100,
         )
     except Exception as e:
+        logger.exception("同步任务失败: %s", e)
         set_sync_state(status=SyncStatus.PENDING)
 
 
@@ -346,6 +360,7 @@ def reset_vectorize_task() -> bool:
     )
     return True
 
+
 # ===== 路由处理器 =====
 
 
@@ -424,6 +439,9 @@ async def index_page(request: Request) -> Response:
 </html>
 """
         return Response(content=fallback_html, media_type="text/html")
+
+
+# ===== 同步 API =====
 
 
 async def api_sync_start(request: Request) -> JSONResponse:
@@ -517,6 +535,363 @@ async def api_vectorize_cancel(request: Request) -> JSONResponse:
     return JSONResponse({"message": "向量化已取消", "status": get_vector_state()})
 
 
+# ===== 配置 API =====
+
+
+async def api_config_get(request: Request) -> JSONResponse:
+    """获取配置（脱敏）"""
+    try:
+        settings = get_settings()
+        # 脱敏处理
+        safe_config = mask_sensitive_config(settings)
+        return JSONResponse(safe_config)
+    except Exception as e:
+        logger.exception("获取配置失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def api_config_put(request: Request) -> JSONResponse:
+    """更新配置"""
+    try:
+        body = await request.json()
+        settings = get_settings()
+
+        # 更新配置
+        for key, value in body.items():
+            if hasattr(settings, key):
+                setattr(settings, key, value)
+
+        # 保存
+        save_settings(settings)
+
+        # 更新全局 config
+        config: Config = request.app.state.config
+        config.github_token = settings.github_token or config.github_token
+        config.github_username = settings.github_username or config.github_username
+        config.anthropic_api_key = getattr(settings.llm, "api_key", "") or config.anthropic_api_key
+
+        return JSONResponse({"message": "配置已保存", "config": mask_sensitive_config(settings)})
+    except Exception as e:
+        logger.exception("更新配置失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def api_config_validate(request: Request) -> JSONResponse:
+    """验证配置"""
+    try:
+        body = await request.json()
+        errors = []
+
+        # 基本验证
+        if "github_username" in body and not body["github_username"]:
+            errors.append({"field": "github_username", "message": "GitHub 用户名不能为空"})
+
+        if "llm" in body:
+            llm = body["llm"]
+            if llm.get("provider") == "anthropic" and not llm.get("api_key"):
+                errors.append({"field": "llm.api_key", "message": "Anthropic API Key 不能为空"})
+
+        if errors:
+            return JSONResponse({"valid": False, "errors": errors}, status_code=400)
+
+        return JSONResponse({"valid": True})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ===== 分组 API =====
+
+
+async def api_groups_list(request: Request) -> JSONResponse:
+    """列出分组"""
+    try:
+        config: Config = request.app.state.config
+        storage = get_storage(config)
+        service = GroupService(storage.get_session())
+        groups = service.list_groups()
+
+        result = []
+        for g in groups:
+            result.append({
+                "id": g.id,
+                "name": g.name,
+                "description": g.description,
+                "color": g.color,
+                "icon": g.icon,
+                "is_auto": g.is_auto,
+                "project_count": service.count_projects_in_group(g.id),
+                "created_at": g.created_at.isoformat() if g.created_at else None,
+            })
+
+        return JSONResponse({"groups": result})
+    except Exception as e:
+        logger.exception("列出分组失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def api_groups_create(request: Request) -> JSONResponse:
+    """创建分组"""
+    try:
+        body = await request.json()
+        config: Config = request.app.state.config
+        storage = get_storage(config)
+        service = GroupService(storage.get_session())
+
+        group = service.create_group(
+            name=body.get("name"),
+            description=body.get("description"),
+            color=body.get("color", "#6366f1"),
+            icon=body.get("icon"),
+        )
+
+        return JSONResponse({
+            "id": group.id,
+            "name": group.name,
+            "description": group.description,
+            "color": group.color,
+            "icon": group.icon,
+            "created_at": group.created_at.isoformat() if group.created_at else None,
+        })
+    except Exception as e:
+        logger.exception("创建分组失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def api_groups_update(request: Request) -> JSONResponse:
+    """更新分组"""
+    try:
+        group_id = int(request.path_params.get("id", 0))
+        body = await request.json()
+        config: Config = request.app.state.config
+        storage = get_storage(config)
+        service = GroupService(storage.get_session())
+
+        group = service.update_group(
+            group_id=group_id,
+            name=body.get("name"),
+            description=body.get("description"),
+            color=body.get("color"),
+            icon=body.get("icon"),
+        )
+
+        if not group:
+            return JSONResponse({"error": "分组不存在"}, status_code=404)
+
+        return JSONResponse({
+            "id": group.id,
+            "name": group.name,
+            "description": group.description,
+            "color": group.color,
+            "icon": group.icon,
+        })
+    except Exception as e:
+        logger.exception("更新分组失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def api_groups_delete(request: Request) -> JSONResponse:
+    """删除分组"""
+    try:
+        group_id = int(request.path_params.get("id", 0))
+        config: Config = request.app.state.config
+        storage = get_storage(config)
+        service = GroupService(storage.get_session())
+
+        if not service.delete_group(group_id):
+            return JSONResponse({"error": "分组不存在"}, status_code=404)
+
+        return JSONResponse({"message": "分组已删除"})
+    except Exception as e:
+        logger.exception("删除分组失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def api_groups_add_projects(request: Request) -> JSONResponse:
+    """添加项目到分组"""
+    try:
+        group_id = int(request.path_params.get("id", 0))
+        body = await request.json()
+        project_ids = body.get("project_ids", [])
+        config: Config = request.app.state.config
+        storage = get_storage(config)
+        service = GroupService(storage.get_session())
+
+        count = service.batch_add_projects_to_group(project_ids, group_id)
+
+        return JSONResponse({"message": f"已添加 {count} 个项目到分组"})
+    except Exception as e:
+        logger.exception("添加项目到分组失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def api_groups_remove_project(request: Request) -> JSONResponse:
+    """从分组移除项目"""
+    try:
+        group_id = int(request.path_params.get("id", 0))
+        project_id = int(request.path_params.get("project_id", 0))
+        config: Config = request.app.state.config
+        storage = get_storage(config)
+        service = GroupService(storage.get_session())
+
+        if not service.remove_project_from_group(project_id, group_id):
+            return JSONResponse({"error": "项目不在该分组中"}, status_code=404)
+
+        return JSONResponse({"message": "已从分组移除"})
+    except Exception as e:
+        logger.exception("从分组移除项目失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def api_groups_get_projects(request: Request) -> JSONResponse:
+    """获取分组中的项目"""
+    try:
+        group_id = int(request.path_params.get("id", 0))
+        limit = int(request.query_params.get("limit", 100))
+        offset = int(request.query_params.get("offset", 0))
+        config: Config = request.app.state.config
+        storage = get_storage(config)
+        service = GroupService(storage.get_session())
+
+        project_groups = service.get_group_projects(group_id, limit, offset)
+        projects = []
+        for pg in project_groups:
+            p = storage.get_project(pg.project_id)
+            if p:
+                projects.append({
+                    "id": p.id,
+                    "name": p.name,
+                    "full_name": p.full_name,
+                    "description": p.description,
+                    "language": p.language,
+                    "stargazers_count": p.stargazers_count,
+                    "html_url": p.html_url,
+                })
+
+        return JSONResponse({"projects": projects})
+    except Exception as e:
+        logger.exception("获取分组项目失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ===== 聊天 API =====
+
+
+async def api_chat(request: Request) -> JSONResponse:
+    """发送聊天消息"""
+    try:
+        body = await request.json()
+        message = body.get("message", "")
+
+        if not message:
+            return JSONResponse({"error": "消息不能为空"}, status_code=400)
+
+        config: Config = request.app.state.config
+        agent = get_agent(config)
+
+        # 处理聊天
+        response = await agent.chat_simple(message)
+
+        return JSONResponse({
+            "message": response,
+            "history": agent.get_history(),
+        })
+    except Exception as e:
+        logger.exception("聊天处理失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def api_chat_stream(request: Request) -> StreamingResponse:
+    """流式聊天响应"""
+    try:
+        body = await request.json()
+        message = body.get("message", "")
+
+        if not message:
+            return StreamingResponse(
+                iter([json.dumps({"error": "消息不能为空"})]),
+                media_type="application/json",
+                status_code=400,
+            )
+
+        config: Config = request.app.state.config
+        agent = get_agent(config)
+
+        async def generate():
+            async for chunk in agent.chat(message):
+                yield f"{json.dumps(chunk, ensure_ascii=False)}\n"
+
+        return StreamingResponse(generate(), media_type="application/x-ndjson")
+    except Exception as e:
+        logger.exception("流式聊天失败: %s", e)
+        return StreamingResponse(
+            iter([json.dumps({"error": str(e)})]),
+            media_type="application/json",
+            status_code=500,
+        )
+
+
+async def api_chat_history(request: Request) -> JSONResponse:
+    """获取聊天历史"""
+    try:
+        config: Config = request.app.state.config
+        agent = get_agent(config)
+
+        return JSONResponse({"history": agent.get_history()})
+    except Exception as e:
+        logger.exception("获取聊天历史失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+async def api_chat_clear(request: Request) -> JSONResponse:
+    """清除聊天历史"""
+    try:
+        config: Config = request.app.state.config
+        agent = get_agent(config)
+        agent.clear_history()
+
+        return JSONResponse({"message": "聊天历史已清除"})
+    except Exception as e:
+        logger.exception("清除聊天历史失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ===== 健康检测 API =====
+
+
+async def api_health_check(request: Request) -> JSONResponse:
+    """健康检测"""
+    try:
+        config: Config = request.app.state.config
+        storage = get_storage(config)
+        checker = HealthChecker(storage)
+
+        reports = checker.get_unhealthy_projects(threshold=50)
+
+        return JSONResponse({
+            "reports": [r.to_dict() for r in reports],
+            "total": len(reports),
+        })
+    except Exception as e:
+        logger.exception("健康检测失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
+# ===== 发现 API =====
+
+
+async def api_discover_trending(request: Request) -> JSONResponse:
+    """发现 Trending 项目"""
+    try:
+        # TODO: 实现真正的 GitHub Trending API
+        return JSONResponse({
+            "trending": [],
+            "message": "Trending 功能开发中",
+        })
+    except Exception as e:
+        logger.exception("发现 Trending 失败: %s", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 def create_web_app(config: Config, host: str = "0.0.0.0", port: int = 8080) -> Starlette:
     """创建 Web 应用"""
 
@@ -567,13 +942,36 @@ def create_web_app(config: Config, host: str = "0.0.0.0", port: int = 8080) -> S
         routes=[
             Route("/", index_page),
             Route("/mcp", mcp_handler, methods=["GET", "POST", "DELETE"]),
+            # 同步 API
             Route("/api/sync/start", api_sync_start, methods=["POST"]),
             Route("/api/sync/status", api_sync_status, methods=["GET"]),
             Route("/api/sync/cancel", api_sync_cancel, methods=["POST"]),
             Route("/api/sync/reset", api_sync_reset, methods=["POST"]),
+            # 向量化 API
             Route("/api/vectorize/start", api_vectorize_start, methods=["POST"]),
             Route("/api/vectorize/status", api_vectorize_status, methods=["GET"]),
             Route("/api/vectorize/cancel", api_vectorize_cancel, methods=["POST"]),
+            # 配置 API
+            Route("/api/config", api_config_get, methods=["GET"]),
+            Route("/api/config", api_config_put, methods=["PUT"]),
+            Route("/api/config/validate", api_config_validate, methods=["POST"]),
+            # 分组 API
+            Route("/api/groups", api_groups_list, methods=["GET"]),
+            Route("/api/groups", api_groups_create, methods=["POST"]),
+            Route("/api/groups/{id}", api_groups_update, methods=["PUT"]),
+            Route("/api/groups/{id}", api_groups_delete, methods=["DELETE"]),
+            Route("/api/groups/{id}/projects", api_groups_get_projects, methods=["GET"]),
+            Route("/api/groups/{id}/projects", api_groups_add_projects, methods=["POST"]),
+            Route("/api/groups/{id}/projects/{project_id}", api_groups_remove_project, methods=["DELETE"]),
+            # 聊天 API
+            Route("/api/chat", api_chat, methods=["POST"]),
+            Route("/api/chat/stream", api_chat_stream, methods=["POST"]),
+            Route("/api/chat/history", api_chat_history, methods=["GET"]),
+            Route("/api/chat/clear", api_chat_clear, methods=["POST"]),
+            # 健康检测 API
+            Route("/api/health/check", api_health_check, methods=["POST"]),
+            # 发现 API
+            Route("/api/discover/trending", api_discover_trending, methods=["GET"]),
         ] + ([Mount("/assets", app=StaticFiles(directory=str(get_static_dir() / "assets")))] if (get_static_dir() / "assets").exists() else []),
         lifespan=lifespan,
     )
