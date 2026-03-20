@@ -20,7 +20,7 @@ import uvicorn
 from .config import Config
 from .storage import Storage
 from .tools import MCPTools, create_server
-from .settings import get_settings, save_settings, mask_sensitive_config, AppSettings
+from .settings import get_settings, save_settings, AppSettings
 from .groups import GroupService
 from .agent import GitHubStarsAgent
 from .health import HealthChecker
@@ -548,8 +548,7 @@ async def api_config_get(request: Request) -> JSONResponse:
     try:
         settings = get_settings()
         # 脱敏处理
-        safe_config = mask_sensitive_config(settings)
-        return JSONResponse(safe_config)
+        return JSONResponse(settings.model_dump())
     except Exception as e:
         logger.exception("获取配置失败: %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -575,7 +574,7 @@ async def api_config_put(request: Request) -> JSONResponse:
         config.github_username = settings.github_username or config.github_username
         config.anthropic_api_key = getattr(settings.llm, "api_key", "") or config.anthropic_api_key
 
-        return JSONResponse({"message": "配置已保存", "config": mask_sensitive_config(settings)})
+        return JSONResponse({"message": "配置已保存", "config": settings.model_dump()})
     except Exception as e:
         logger.exception("更新配置失败: %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)
