@@ -48,6 +48,28 @@ def _save_to_settings_json(settings: AppSettings) -> None:
         json.dump(settings.model_dump(), f, indent=2, ensure_ascii=False)
 
 
+def _save_to_yaml(settings: AppSettings) -> None:
+    """保存配置到 config.yaml（仅更新 AppSettings 管理的字段，保留其他内容）"""
+    _ensure_settings_dir()
+
+    # 读取现有 config.yaml 内容，保留未管理的字段/注释
+    existing = {}
+    if CONFIG_FILE.exists():
+        with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+            existing = yaml.safe_load(f) or {}
+
+    # 只覆盖 AppSettings 管理的字段
+    existing["github_token"] = settings.github_token
+    existing["github_username"] = settings.github_username
+    existing["anthropic_api_key"] = settings.llm.api_key
+    existing["anthropic_model"] = settings.llm.model
+    existing["gitea"] = settings.gitea.model_dump()
+    existing["database"] = settings.database.model_dump()
+
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        yaml.dump(existing, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+
 def _flatten_dict(d: dict, parent_key: str = "", sep: str = ".") -> dict:
     """将嵌套字典展平为点分隔键"""
     items = []
@@ -170,8 +192,9 @@ def load_settings() -> AppSettings:
 
 
 def save_settings(settings: AppSettings) -> None:
-    """保存配置到 settings.json"""
+    """保存配置到 settings.json 和 config.yaml"""
     _save_to_settings_json(settings)
+    _save_to_yaml(settings)
 
 
 def get_settings_with_defaults() -> Tuple[AppSettings, dict]:
