@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { MessageSquare, Settings, FolderOpen, Compass, Github, RefreshCw } from 'lucide-react';
+import { MessageSquare, Settings, FolderOpen, Github, RefreshCw } from 'lucide-react';
 import { usePolling } from '@/hooks/usePolling';
 import { useEffect, useState } from 'react';
 
@@ -29,9 +29,8 @@ export function Sidebar({ children }: SidebarProps) {
 
   const navItems = [
     { to: '/', icon: MessageSquare, label: '对话' },
-    { to: '/settings', icon: Settings, label: '设置' },
     { to: '/groups', icon: FolderOpen, label: '分组' },
-    { to: '/discover', icon: Compass, label: '发现' },
+    { to: '/settings', icon: Settings, label: '设置' },
   ];
 
   const isCompleted = syncStatus?.status === 'completed';
