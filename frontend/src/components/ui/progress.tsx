@@ -1,21 +1,35 @@
 import * as React from "react"
 import { cn } from "@/lib/utils"
 
-const Progress = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & { value?: number; max?: number }
->(({ className, value = 0, max = 100, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={cn("relative h-4 w-full overflow-hidden rounded-full bg-secondary", className)}
-    {...props}
-  >
-    <div
-      className="h-full w-full flex-1 bg-primary transition-all"
-      style={{ transform: `translateX(-${100 - (value / max) * 100}%)` }}
-    />
-  </div>
-))
+interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
+  value?: number
+  max?: number
+  label?: string
+}
+
+const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(
+  ({ className, value = 0, max = 100, label, ...props }, ref) => {
+    const percentage = Math.round((value / max) * 100);
+
+    return (
+      <div
+        ref={ref}
+        role="progressbar"
+        aria-valuenow={value}
+        aria-valuemin={0}
+        aria-valuemax={max}
+        aria-label={label ?? `进度: ${percentage}%`}
+        className={cn("relative h-1.5 w-full overflow-hidden rounded-full bg-secondary/50", className)}
+        {...props}
+      >
+        <div
+          className="h-full rounded-full bg-primary transition-all duration-500 ease-out"
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+    )
+  }
+)
 Progress.displayName = "Progress"
 
 export { Progress }

@@ -1,5 +1,5 @@
 import type { VectorStatus } from '../types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
@@ -15,18 +15,13 @@ interface Props {
   onCancel?: () => void;
   canStart: boolean;
   isRunning: boolean;
+  isLoading?: boolean;
 }
 
 const statusLabels: Record<VectorStatus, string> = {
   pending: '等待向量化',
   vectorizing: '向量化中',
   completed: '向量化完成',
-};
-
-const statusVariants: Record<VectorStatus, "default" | "secondary" | "outline"> = {
-  pending: 'outline',
-  vectorizing: 'secondary',
-  completed: 'default',
 };
 
 export function VectorStatusCard({
@@ -39,50 +34,57 @@ export function VectorStatusCard({
   onCancel,
   canStart,
   isRunning,
+  isLoading,
 }: Props) {
+  const isActive = isRunning || status === 'completed';
+
   return (
     <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-normal text-muted-foreground">向量索引</CardTitle>
-          <Badge variant={statusVariants[status]} className={isRunning ? 'animate-pulse' : ''}>
+      <CardHeader className="pb-0">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[13px] text-muted-foreground tracking-wide uppercase">向量索引</span>
+          <Badge variant={isRunning ? 'secondary' : status === 'completed' ? 'default' : 'outline'} className={isRunning ? 'animate-pulse' : ''}>
             {statusLabels[status]}
           </Badge>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {(isRunning || status === 'completed') && (
+      <CardContent className="pt-5 space-y-5">
+        {isActive && (
           <div className="space-y-2">
-            <Progress value={progress} max={100} />
+            <Progress
+              value={current}
+              max={total || 1}
+              label={`向量化进度: ${current.toLocaleString()} / ${total.toLocaleString()}`}
+            />
             {total > 0 && (
-              <p className="text-xs text-center text-muted-foreground">
-                {current} / {total} 个项目 ({Math.round(progress)}%)
+              <p className="text-[12px] text-muted-foreground text-center tabular-nums">
+                {current.toLocaleString()} / {total.toLocaleString()} 个项目 ({Math.round(progress)}%)
               </p>
             )}
           </div>
         )}
 
         {status === 'completed' && (
-          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-sm text-emerald-400">
+          <p className="text-[14px] text-muted-foreground leading-relaxed">
             向量化已完成，可以使用 MCP 搜索/问答功能。
-          </div>
+          </p>
         )}
 
         {error && (
-          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 text-sm text-destructive">
-            <strong>向量化失败:</strong> {error}
-          </div>
+          <p role="alert" className="text-[14px] text-muted-foreground leading-relaxed">
+            {error}
+          </p>
         )}
 
-        <div className="flex gap-2">
+        <div className="flex gap-2 pt-1">
           {canStart && !isRunning && (
-            <Button onClick={onStart} className="w-full">
+            <Button onClick={onStart} className="flex-1" disabled={isLoading}>
               <Zap className="mr-2 w-4 h-4" />
-              开始向量化
+              {isLoading ? '启动中...' : '开始向量化'}
             </Button>
           )}
           {isRunning && (
-            <Button variant="destructive" onClick={onCancel} className="w-full">
+            <Button variant="outline" onClick={onCancel} className="flex-1">
               <X className="mr-2 w-4 h-4" />
               取消向量化
             </Button>

@@ -1,37 +1,55 @@
 import type { ApiResponse, InitialData, SyncState } from '../types';
 
 const API_BASE = '/api';
+const FETCH_TIMEOUT = 10000; // 10s
+
+async function fetchWithTimeout(url: string, options?: RequestInit, timeout = FETCH_TIMEOUT): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers,
+      },
+    });
+    clearTimeout(timer);
+    return response;
+  } catch (err) {
+    clearTimeout(timer);
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('请求超时，请检查网络连接');
+    }
+    throw err;
+  }
+}
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetchWithTimeout(url, options);
+  } catch (err) {
+    if (err instanceof TypeError) {
+      // Network failure (offline, CORS, etc.)
+      throw new Error('网络连接失败，请检查网络');
+    }
+    throw err;
+  }
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
-    throw new Error(errorData.error || `Request failed with status ${response.status}`);
+    throw new Error(errorData.error || `请求失败 (${response.status})`);
   }
 
   return response.json();
 }
 
 export async function fetchInitialData(): Promise<InitialData> {
-  // Always fetch fresh data from API to get accurate counts
   try {
-    const response = await fetch(`${API_BASE}/sync/status`);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-    const text = await response.text();
-    if (!text) {
-      throw new Error('Empty response');
-    }
-    const state = JSON.parse(text);
-    console.log('[fetchInitialData] API response:', state);
+    const response = await fetchWithTimeout(`${API_BASE}/sync/status`);
+    const state = await response.json();
     return {
       status: state.status || 'pending',
       readme_total: state.readme_total || 0,

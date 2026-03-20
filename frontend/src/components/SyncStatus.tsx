@@ -1,8 +1,7 @@
 import type { SyncStatus } from '../types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { ChevronRight } from 'lucide-react';
 
 interface Props {
   status: SyncStatus;
@@ -20,13 +19,6 @@ const statusLabels: Record<SyncStatus, string> = {
   completed: '同步完成',
 };
 
-const statusVariants: Record<SyncStatus, "default" | "secondary" | "outline"> = {
-  pending: 'outline',
-  syncing: 'secondary',
-  loading_readme: 'secondary',
-  completed: 'default',
-};
-
 export function SyncStatusCard({
   status,
   syncedProjects,
@@ -42,40 +34,50 @@ export function SyncStatusCard({
 
   return (
     <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-normal text-muted-foreground">同步状态</CardTitle>
-          <Badge variant={statusVariants[status]} className={isLoading ? 'animate-pulse' : ''}>
+      <CardHeader className="pb-0">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[13px] text-muted-foreground tracking-wide uppercase">同步状态</span>
+          <Badge variant={isLoading ? 'secondary' : status === 'completed' ? 'default' : 'outline'} className={isLoading ? 'animate-pulse' : ''}>
             {statusLabels[status]}
           </Badge>
         </div>
       </CardHeader>
-      <CardContent>
-        <div className="flex items-center justify-center gap-4 py-2">
-          <div className="text-center">
-            <div className="text-3xl font-bold text-primary">{syncedProjects}</div>
-            <div className="text-xs text-muted-foreground mt-1">已入库</div>
-          </div>
-          <ChevronRight className="text-primary/60 animate-pulse w-6 h-6" />
-          <div className="text-center">
-            <div className="text-3xl font-bold text-primary">{syncedReadme}</div>
-            <div className="text-xs text-muted-foreground mt-1">已同步 README</div>
-          </div>
-          <ChevronRight className="text-primary/60 animate-pulse w-6 h-6" />
-          <div className="text-center">
-            <div className="text-3xl font-bold text-primary">{vectorizedProjects}</div>
-            <div className="text-xs text-muted-foreground mt-1">已向量化</div>
-          </div>
+      <CardContent className="pt-5">
+        <div className="flex items-center justify-between gap-4">
+          <Stat value={syncedProjects} label="已入库" />
+          <Divider />
+          <Stat value={syncedReadme} label="已同步 README" />
+          <Divider />
+          <Stat value={vectorizedProjects} label="已向量化" />
         </div>
         {status === 'loading_readme' && (
-          <div className="mt-4 space-y-2">
-            <Progress value={progress} max={100} />
-            <p className="text-xs text-center text-muted-foreground">
-              {readmeCurrent} / {readmeTotal} ({progress}%)
+          <div className="mt-6 space-y-2">
+            <Progress
+              value={readmeCurrent}
+              max={readmeTotal}
+              label={`README 加载进度: ${readmeCurrent.toLocaleString()} / ${readmeTotal.toLocaleString()}`}
+            />
+            <p className="text-[12px] text-muted-foreground text-center tabular-nums">
+              {readmeCurrent.toLocaleString()} / {readmeTotal.toLocaleString()} ({progress}%)
             </p>
           </div>
         )}
       </CardContent>
     </Card>
   );
+}
+
+function Stat({ value, label }: { value: number; label: string }) {
+  return (
+    <div className="flex-1 text-center">
+      <div className="text-[28px] font-semibold tracking-tight text-foreground tabular-nums leading-none">
+        {value.toLocaleString()}
+      </div>
+      <div className="text-[12px] text-muted-foreground mt-1.5 tracking-wide">{label}</div>
+    </div>
+  );
+}
+
+function Divider() {
+  return <div className="w-px h-10 bg-border/50 shrink-0" />;
 }

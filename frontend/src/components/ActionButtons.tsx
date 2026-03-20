@@ -7,21 +7,22 @@ interface Props {
   onStart: () => void;
   onCancel: () => void;
   onReset: () => void;
+  isLoading?: boolean;
 }
 
-export function ActionButtons({ status, onStart, onCancel, onReset }: Props) {
+export function ActionButtons({ status, onStart, onCancel, onReset, isLoading }: Props) {
   if (status === 'pending') {
     return (
-      <Button onClick={onStart} size="lg" className="w-full">
+      <Button onClick={onStart} className="w-full" disabled={isLoading}>
         <Rocket className="mr-2 w-4 h-4" />
-        开始同步 GitHub Stars
+        {isLoading ? '启动中...' : '开始同步 GitHub Stars'}
       </Button>
     );
   }
 
   if (status === 'syncing' || status === 'loading_readme') {
     return (
-      <Button variant="destructive" onClick={onCancel} size="lg" className="w-full">
+      <Button variant="outline" onClick={onCancel} className="w-full">
         <X className="mr-2 w-4 h-4" />
         取消同步
       </Button>
@@ -30,7 +31,7 @@ export function ActionButtons({ status, onStart, onCancel, onReset }: Props) {
 
   if (status === 'completed') {
     return (
-      <Button variant="outline" onClick={onReset} size="lg" className="w-full">
+      <Button variant="secondary" onClick={onReset} className="w-full">
         <RefreshCcw className="mr-2 w-4 h-4" />
         重新同步
       </Button>
