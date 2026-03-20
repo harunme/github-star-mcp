@@ -30,12 +30,19 @@ class DatabaseConfig(BaseModel):
     path: str = "~/.github-star-mcp/data.db"
 
 
+class TextSplitConfig(BaseModel):
+    """文本分割配置"""
+    chunk_size: int = 1024
+    chunk_overlap: int = 128
+
+
 class Config(BaseSettings):
     """主配置类"""
     model_config = SettingsConfigDict(
         env_prefix="GITHUB_STAR_",
         env_file=".env",
         env_file_encoding="utf-8",
+        extra="ignore",
     )
 
     # GitHub 配置
@@ -56,6 +63,13 @@ class Config(BaseSettings):
 
     # Embedder 配置
     embedder: EmbedderConfig = EmbedderConfig()
+
+    # 文本分割配置
+    text_split: TextSplitConfig = TextSplitConfig()
+
+    # UI 配置
+    theme: str = "system"
+    page_size: int = 20
 
     @property
     def db_path(self) -> Path:

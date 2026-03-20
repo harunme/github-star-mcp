@@ -7,6 +7,7 @@ from typing import Any, AsyncGenerator, Dict, List, Optional
 from ..config import Config
 from ..storage import Storage
 from ..vector_store import VectorStore
+from .intent_parser import IntentParser, FallbackIntentParser
 from .tools import AgentTools, ToolResult
 from .prompts import SYSTEM_PROMPT
 
@@ -75,6 +76,7 @@ class GitHubStarsAgent:
         self.tools = AgentTools(config, self.storage, self.vector_store)
         self.chat_history = ChatHistory()
         self._llm = None
+        self._intent_parser = None
 
     def _create_llm(self):
         """创建 LLM 实例"""
@@ -120,6 +122,17 @@ class GitHubStarsAgent:
                 return None
 
         return None
+
+    def _get_intent_parser(self):
+        """获取意图解析器（懒加载）"""
+        if self._intent_parser is None:
+            llm = self._create_llm()
+            if llm is not None:
+                self._intent_parser = IntentParser(llm)
+            else:
+                # LLM 不可用时使用备用解析器
+                self._intent_parser = FallbackIntentParser()
+        return self._intent_parser
 
     def _route_intent(self, message: str) -> tuple[str, dict]:
         """路由意图识别
@@ -218,8 +231,12 @@ class GitHubStarsAgent:
         # 添加用户消息到历史
         self.chat_history.add(ChatMessage(role="user", content=message))
 
-        # 意图识别
-        intent, params = self._route_intent(message)
+        # 意图识别（LLM 驱动）
+        parser = self._get_intent_parser()
+        if isinstance(parser, IntentParser):
+            intent, params = await parser.parse(message)
+        else:
+            intent, params = parser.parse(message)
 
         # 记录工具调用
         tool_calls = []
