@@ -208,29 +208,8 @@ def get_settings_with_defaults() -> Tuple[AppSettings, dict]:
 
 
 def mask_sensitive_config(config: AppSettings) -> dict:
-    """脱敏配置（隐藏敏感信息）"""
-    config_dict = config.model_dump()
-
-    sensitive_fields = [
-        ("gitea", "token"),
-        ("llm", "api_key"),
-        ("embedder", "api_key"),
-    ]
-
-    for field in sensitive_fields:
-        if isinstance(field, tuple):
-            # 嵌套字段
-            obj = config_dict
-            for part in field[:-1]:
-                obj = obj.get(part, {})
-            if field[-1] in obj and obj[field[-1]]:
-                obj[field[-1]] = "***"
-        else:
-            # 顶级字段
-            if field in config_dict and config_dict[field]:
-                config_dict[field] = "***"
-
-    return config_dict
+    """脱敏配置（直接返回所有值，用户可查看自己的配置）"""
+    return config.model_dump()
 
 
 # 全局设置实例
