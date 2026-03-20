@@ -377,6 +377,37 @@ def reset_vectorize_task() -> bool:
     return True
 
 
+def rebuild_vectorize_task(config: Config) -> bool:
+    """重建向量库：清空 LanceDB + 重置 SQLite vector_id，然后启动向量化"""
+    global _vector_task
+
+    if _vector_task:
+        _vector_task.cancel()
+        _vector_task = None
+
+    # 重置向量状态
+    set_vector_state(
+        status=VectorizeStatus.PENDING,
+        progress=0,
+        total=0,
+        current=0,
+        error=None,
+    )
+
+    # 清空 LanceDB
+    from .vector_store import create_vector_store
+    vs = create_vector_store(config)
+    vs.clear()
+
+    # 重置 SQLite 中已向量化的标记
+    storage = get_storage(config)
+    storage.reset_vectorized_marks()
+
+    # 启动向量化任务
+    _vector_task = asyncio.create_task(_run_vectorize_task(config))
+    return True
+
+
 # ===== 路由处理器 =====
 
 
@@ -554,6 +585,16 @@ async def api_vectorize_cancel(request: Request) -> JSONResponse:
         return JSONResponse({"error": "没有正在运行的向量化任务"}, status_code=400)
 
     return JSONResponse({"message": "向量化已取消", "status": get_vector_state()})
+
+
+async def api_sync_rebuild(request: Request) -> JSONResponse:
+    """重建向量库"""
+    config: Config = request.app.state.config
+
+    if not rebuild_vectorize_task(config):
+        return JSONResponse({"error": "向量库重建任务启动失败"}, status_code=400)
+
+    return JSONResponse({"message": "向量库重建已启动", "status": get_vector_state()})
 
 
 # ===== 配置 API =====
@@ -1008,6 +1049,7 @@ def create_web_app(config: Config, host: str = "0.0.0.0", port: int = 8080) -> S
             Route("/api/sync/status", api_sync_status, methods=["GET"]),
             Route("/api/sync/cancel", api_sync_cancel, methods=["POST"]),
             Route("/api/sync/reset", api_sync_reset, methods=["POST"]),
+            Route("/api/sync/rebuild", api_sync_rebuild, methods=["POST"]),
             # 向量化 API
             Route("/api/vectorize/start", api_vectorize_start, methods=["POST"]),
             Route("/api/vectorize/status", api_vectorize_status, methods=["GET"]),

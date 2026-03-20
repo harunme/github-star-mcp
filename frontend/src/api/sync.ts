@@ -111,3 +111,7 @@ export async function startVectorize(): Promise<ApiResponse> {
 export async function cancelVectorize(): Promise<ApiResponse> {
   return fetchJson<ApiResponse>(`${API_BASE}/vectorize/cancel`, { method: 'POST' });
 }
+
+export async function rebuildVectorize(): Promise<ApiResponse> {
+  return fetchJson<ApiResponse>(`${API_BASE}/sync/rebuild`, { method: 'POST' });
+}

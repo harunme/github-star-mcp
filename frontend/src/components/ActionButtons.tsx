@@ -1,19 +1,35 @@
+import { useState } from 'react';
 import type { SyncStatus } from '../types';
 import { Button } from '@/components/ui/button';
-import { Rocket, X, RefreshCcw } from 'lucide-react';
+import { Rocket, X, RefreshCcw, Database } from 'lucide-react';
+import { startSync, cancelSync, rebuildVectorize } from '@/api/sync';
 
 interface Props {
   status: SyncStatus;
-  onStart: () => void;
-  onCancel: () => void;
-  onReset: () => void;
   isLoading?: boolean;
 }
 
-export function ActionButtons({ status, onStart, onCancel, onReset, isLoading }: Props) {
+export function ActionButtons({ status, isLoading }: Props) {
+  const [rebuilding, setRebuilding] = useState(false);
+
+  const handleRebuildVectorize = async () => {
+    try {
+      setRebuilding(true);
+      await rebuildVectorize();
+    } catch (err) {
+      console.error('重建向量库失败:', err);
+    } finally {
+      setRebuilding(false);
+    }
+  };
+
   if (status === 'pending') {
     return (
-      <Button onClick={onStart} className="w-full" disabled={isLoading}>
+      <Button
+        onClick={() => startSync().catch(console.error)}
+        className="w-full"
+        disabled={isLoading}
+      >
         <Rocket className="mr-2 w-4 h-4" />
         {isLoading ? '启动中...' : '开始同步 GitHub Stars'}
       </Button>
@@ -22,7 +38,7 @@ export function ActionButtons({ status, onStart, onCancel, onReset, isLoading }:
 
   if (status === 'syncing' || status === 'loading_readme') {
     return (
-      <Button variant="outline" onClick={onCancel} className="w-full">
+      <Button variant="outline" onClick={() => cancelSync().catch(console.error)} className="w-full">
         <X className="mr-2 w-4 h-4" />
         取消同步
       </Button>
@@ -31,10 +47,25 @@ export function ActionButtons({ status, onStart, onCancel, onReset, isLoading }:
 
   if (status === 'completed') {
     return (
-      <Button variant="secondary" onClick={onReset} className="w-full">
-        <RefreshCcw className="mr-2 w-4 h-4" />
-        重新同步
-      </Button>
+      <div className="flex gap-2">
+        <Button
+          variant="secondary"
+          onClick={() => startSync().catch(console.error)}
+          className="flex-1"
+          disabled={isLoading}
+        >
+          <RefreshCcw className="mr-2 w-4 h-4" />
+          增量同步
+        </Button>
+        <Button
+          variant="outline"
+          onClick={handleRebuildVectorize}
+          disabled={rebuilding}
+        >
+          <Database className="mr-2 w-4 h-4" />
+          {rebuilding ? '重建中...' : '重建向量库'}
+        </Button>
+      </div>
     );
   }
 

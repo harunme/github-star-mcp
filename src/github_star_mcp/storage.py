@@ -3,7 +3,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select
+from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, select, update
 
 from .groups.models import Group, ProjectGroup  # noqa: F401
 
@@ -257,6 +257,14 @@ class Storage:
                 project.vector_id = vector_id
                 session.add(project)
                 session.commit()
+
+    def reset_vectorized_marks(self) -> None:
+        """重置所有项目的 vector_id（用于重建向量库）"""
+        with self.get_session() as session:
+            session.execute(
+                update(Project).where(Project.vector_id.isnot(None)).values(vector_id=None)
+            )
+            session.commit()
 
 
 def model_to_dict(model: Project) -> dict:

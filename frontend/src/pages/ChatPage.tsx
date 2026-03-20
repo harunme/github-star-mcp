@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   MessageSquare,
   Compass,
@@ -6,14 +7,22 @@ import {
   RefreshCw,
   AlertTriangle,
   TrendingUp,
+  Settings,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import { MessageList } from '@/components/chat/MessageList';
 import { ChatInput } from '@/components/chat/ChatInput';
+import { ActionButtons } from '@/components/ActionButtons';
+import { usePolling } from '@/hooks/usePolling';
 import { sendChat, ChatMessage } from '@/api/chat';
 import { checkHealth, HealthReport } from '@/api/health';
+import { fetchStatus, startVectorize, cancelVectorize } from '@/api/sync';
+import { getConfig } from '@/api/config';
+import type { SyncState } from '../types';
 
 type ChatTab = 'chat' | 'discover';
 
@@ -73,6 +82,40 @@ function ChatTab() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [syncState, setSyncState] = useState<SyncState | null>(null);
+  const [githubConfigured, setGithubConfigured] = useState<boolean | null>(null);
+  const navigate = useNavigate();
+
+  const fetchSyncState = useCallback(async () => {
+    try {
+      const state = await fetchStatus();
+      setSyncState(state);
+    } catch {
+      // Ignore
+    }
+  }, []);
+
+  const checkGithubConfig = useCallback(async () => {
+    try {
+      const cfg = await getConfig();
+      setGithubConfigured(!!cfg.github_token && !!cfg.github_username);
+    } catch {
+      setGithubConfigured(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchSyncState();
+    checkGithubConfig();
+  }, [fetchSyncState, checkGithubConfig]);
+
+  // Polling: 3s when syncing/loading_readme, 10s otherwise
+  const isActive =
+    syncState?.status === 'syncing' ||
+    syncState?.status === 'loading_readme' ||
+    syncState?.vector_status?.status === 'vectorizing';
+  const pollingInterval = isActive ? 3000 : 10000;
+  usePolling(fetchSyncState, pollingInterval, !!syncState);
 
   const handleSend = useCallback(async (message: string) => {
     const userMessage: ChatMessage = {
@@ -110,8 +153,139 @@ function ChatTab() {
     }
   }, [messages.length]);
 
+  const handleStartVectorize = async () => {
+    try {
+      await startVectorize();
+      await fetchSyncState();
+    } catch (err) {
+      console.error('启动向量化失败:', err);
+    }
+  };
+
+  const handleCancelVectorize = async () => {
+    try {
+      await cancelVectorize();
+      await fetchSyncState();
+    } catch (err) {
+      console.error('取消向量化失败:', err);
+    }
+  };
+
+  // Loading state
+  if (githubConfigured === null || !syncState) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // No GitHub config → show banner
+  if (!githubConfigured) {
+    return (
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="bg-primary/10 border border-primary/20 rounded-xl p-6 text-center">
+          <Sparkles className="w-8 h-8 mx-auto mb-3 text-primary" />
+          <h2 className="text-lg font-semibold mb-2">欢迎使用 GitHub Stars</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            请先在设置中配置 GitHub Token 和用户名
+          </p>
+          <Button onClick={() => navigate('/settings')}>
+            <Settings className="mr-2 w-4 h-4" />
+            前往设置
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const { status, vector_status } = syncState;
+  const syncedCount = syncState.synced_projects || 0;
+  const readmeCount = syncState.synced_readme || 0;
+  const vectorizedCount = syncState.vectorized_projects || 0;
+
+  const isSyncing = status === 'syncing' || status === 'loading_readme';
+  const isVectorizing = vector_status?.status === 'vectorizing';
+  const isCompleted = status === 'completed';
+
   return (
     <>
+      {/* SyncPanel: always visible when GitHub is configured */}
+      <div className="px-4 py-3 border-b border-border bg-muted/30">
+        {/* Stats row */}
+        <div className="flex gap-4 text-sm mb-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">已入库:</span>
+            <Badge variant="secondary">{syncedCount}</Badge>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">README:</span>
+            <Badge variant="secondary">{readmeCount}</Badge>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="text-muted-foreground">向量化:</span>
+            <Badge variant="secondary">{vectorizedCount}</Badge>
+          </div>
+        </div>
+
+        {/* Progress */}
+        {(isSyncing || isVectorizing) && (
+          <div className="mb-2">
+            <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+              <span>
+                {isSyncing
+                  ? `README 加载中 ${syncState.readme_current || 0}/${syncState.readme_total || 0}`
+                  : `向量化中 ${vector_status?.current || 0}/${vector_status?.total || 0}`}
+              </span>
+              <span>
+                {isSyncing
+                  ? syncState.readme_progress || 0
+                  : vector_status?.progress || 0}
+                %
+              </span>
+            </div>
+            <Progress
+              value={isSyncing ? syncState.readme_progress : vector_status?.progress || 0}
+              className="h-1.5"
+            />
+          </div>
+        )}
+
+        {/* Ready message */}
+        {isCompleted && vector_status?.status === 'completed' && (
+          <p className="text-xs text-green-600 dark:text-green-400 mb-2">
+            ✓ 向量库已就绪，语义搜索功能已开启
+          </p>
+        )}
+
+        {/* Action Buttons */}
+        <ActionButtons status={status} isLoading={isSyncing} />
+
+        {/* Vectorize button */}
+        {isCompleted && vector_status?.status === 'pending' && (
+          <Button
+            variant="outline"
+            onClick={handleStartVectorize}
+            className="w-full mt-2"
+            size="sm"
+          >
+            <Sparkles className="mr-2 w-4 h-4" />
+            开始向量化
+          </Button>
+        )}
+        {isVectorizing && (
+          <Button
+            variant="outline"
+            onClick={handleCancelVectorize}
+            className="w-full mt-2"
+            size="sm"
+          >
+            取消向量化
+          </Button>
+        )}
+      </div>
+
+      {/* Chat area */}
       <MessageList messages={messages} />
       {error && (
         <div className="px-4 py-2 bg-destructive/10 text-destructive text-sm">
