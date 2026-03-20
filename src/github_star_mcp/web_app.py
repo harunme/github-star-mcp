@@ -441,6 +441,11 @@ async def index_page(request: Request) -> Response:
         return Response(content=fallback_html, media_type="text/html")
 
 
+async def spa_fallback(request: Request) -> Response:
+    """SPA fallback: 未匹配的路径返回 index.html 由 React Router 处理"""
+    return await index_page(request)
+
+
 # ===== 同步 API =====
 
 
@@ -972,6 +977,8 @@ def create_web_app(config: Config, host: str = "0.0.0.0", port: int = 8080) -> S
             Route("/api/health/check", api_health_check, methods=["POST"]),
             # 发现 API
             Route("/api/discover/trending", api_discover_trending, methods=["GET"]),
+            # SPA fallback: 所有未匹配的路径都返回 index.html 由 React Router 处理
+            Route("/{path:path}", spa_fallback),
         ] + ([Mount("/assets", app=StaticFiles(directory=str(get_static_dir() / "assets")))] if (get_static_dir() / "assets").exists() else []),
         lifespan=lifespan,
     )
