@@ -212,7 +212,6 @@ def mask_sensitive_config(config: AppSettings) -> dict:
     config_dict = config.model_dump()
 
     sensitive_fields = [
-        "github_token",
         ("gitea", "token"),
         ("llm", "api_key"),
         ("embedder", "api_key"),
