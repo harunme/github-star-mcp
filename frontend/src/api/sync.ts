@@ -50,16 +50,18 @@ export async function fetchInitialData(): Promise<InitialData> {
   try {
     const response = await fetchWithTimeout(`${API_BASE}/sync/status`);
     const state = await response.json();
+    // vector_status 在 API 响应中是嵌套对象
+    const vector_status = state.vector_status;
     return {
       status: state.status || 'pending',
       readme_total: state.readme_total || 0,
       readme_current: state.readme_current || 0,
       readme_progress: state.readme_progress || 0,
-      vector_status: state.vector_status?.status || 'pending',
-      vector_progress: state.vector_status?.progress || 0,
-      vector_current: state.vector_status?.current || 0,
-      vector_total: state.vector_status?.total || 0,
-      vector_error: state.vector_status?.error || undefined,
+      vector_status: vector_status?.status || 'pending',
+      vector_progress: vector_status?.progress || 0,
+      vector_current: vector_status?.current || 0,
+      vector_total: vector_status?.total || 0,
+      vector_error: vector_status?.error,
       username: '',
       synced_projects: state.synced_projects || 0,
       synced_readme: state.synced_readme || 0,

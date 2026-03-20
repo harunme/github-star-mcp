@@ -36,8 +36,6 @@ export function VectorStatusCard({
   isRunning,
   isLoading,
 }: Props) {
-  const isActive = isRunning || status === 'completed';
-
   return (
     <Card>
       <CardHeader className="pb-0">
@@ -49,17 +47,21 @@ export function VectorStatusCard({
         </div>
       </CardHeader>
       <CardContent className="pt-5 space-y-5">
-        {isActive && (
+        {status === 'vectorizing' && (
           <div className="space-y-2">
-            <Progress
-              value={current}
-              max={total || 1}
-              label={`向量化进度: ${current.toLocaleString()} / ${total.toLocaleString()}`}
-            />
-            {total > 0 && (
-              <p className="text-[12px] text-muted-foreground text-center tabular-nums">
-                {current.toLocaleString()} / {total.toLocaleString()} 个项目 ({Math.round(progress)}%)
-              </p>
+            {total === 0 ? (
+              <p className="text-sm text-muted-foreground text-center">准备中...</p>
+            ) : (
+              <>
+                <Progress
+                  value={current}
+                  max={total}
+                  label={`向量化进度: ${current.toLocaleString()} / ${total.toLocaleString()}`}
+                />
+                <p className="text-[12px] text-muted-foreground text-center tabular-nums">
+                  {current.toLocaleString()} / {total.toLocaleString()} 个项目 ({Math.round(progress)}%)
+                </p>
+              </>
             )}
           </div>
         )}
@@ -67,6 +69,12 @@ export function VectorStatusCard({
         {status === 'completed' && (
           <p className="text-[14px] text-muted-foreground leading-relaxed">
             向量化已完成，可以使用 MCP 搜索/问答功能。
+          </p>
+        )}
+
+        {status === 'pending' && !isRunning && (
+          <p className="text-[14px] text-muted-foreground leading-relaxed">
+            点击「开始向量化」为项目建立向量索引。
           </p>
         )}
 

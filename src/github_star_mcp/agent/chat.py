@@ -43,19 +43,49 @@ class ChatMessage:
 
 
 class ChatHistory:
-    """聊天历史"""
-    def __init__(self, max_messages: int = 50):
+    """聊天历史（持久化到 SQLite）"""
+    def __init__(self, storage: Optional[Storage] = None, max_messages: int = 50):
+        self.storage = storage
         self.messages: List[ChatMessage] = []
         self.max_messages = max_messages
+        self._loaded = False
+
+    def _ensure_loaded(self) -> None:
+        if self._loaded:
+            return
+        self._loaded = True
+        if self.storage:
+            db_msgs = self.storage.get_chat_messages(self.max_messages)
+            import json
+            for m in db_msgs:
+                self.messages.append(ChatMessage(
+                    role=m.role,
+                    content=m.content,
+                    tool_calls=json.loads(m.tool_calls or "[]"),
+                    tool_results=json.loads(m.tool_results or "[]"),
+                    metadata=json.loads(m.metadata or "{}"),
+                    created_at=m.created_at,
+                ))
 
     def add(self, message: ChatMessage) -> None:
+        self._ensure_loaded()
         self.messages.append(message)
         # 限制历史长度
         if len(self.messages) > self.max_messages:
             self.messages = self.messages[-self.max_messages:]
+        # 持久化
+        if self.storage:
+            self.storage.save_chat_message(
+                role=message.role,
+                content=message.content,
+                tool_calls=message.tool_calls,
+                tool_results=message.tool_results,
+                metadata=message.metadata,
+            )
 
     def get_context(self) -> str:
         """获取上下文字符串"""
+        self._ensure_loaded()
         context_parts = []
         for msg in self.messages[-10:]:  # 最近 10 条
             role = {"user": "用户", "assistant": "助手", "system": "系统"}.get(msg.role, msg.role)
@@ -63,18 +93,24 @@ class ChatHistory:
         return "\n".join(context_parts)
 
     def to_list(self) -> List[dict]:
+        self._ensure_loaded()
         return [m.to_dict() for m in self.messages]
 
 
 class GitHubStarsAgent:
     """GitHub Stars Agent"""
 
-    def __init__(self, config: Config):
+    def __init__(
+        self,
+        config: Config,
+        storage: Optional[Storage] = None,
+        vector_store: Optional[VectorStore] = None,
+    ):
         self.config = config
-        self.storage = Storage(config.db_path)
-        self.vector_store = VectorStore(config.vector_db_path)
+        self.storage = storage if storage is not None else Storage(config.db_path)
+        self.vector_store = vector_store if vector_store is not None else VectorStore(config.vector_db_path)
         self.tools = AgentTools(config, self.storage, self.vector_store)
-        self.chat_history = ChatHistory()
+        self.chat_history = ChatHistory(self.storage)
         self._llm = None
         self._intent_parser = None
 
@@ -360,5 +396,8 @@ class GitHubStarsAgent:
         return self.chat_history.to_list()
 
     def clear_history(self) -> None:
-        """清除聊天历史"""
-        self.chat_history = ChatHistory()
+        """清除聊天历史（内存 + DB）"""
+        self.chat_history.messages = []
+        self.chat_history._loaded = True
+        if self.storage:
+            self.storage.clear_chat_messages()

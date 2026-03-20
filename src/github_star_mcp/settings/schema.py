@@ -1,5 +1,5 @@
 """设置配置 Schema"""
-from typing import ClassVar, Literal, Optional
+from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
@@ -91,35 +91,6 @@ class ServerConfig(BaseModel):
 class DatabaseConfig(BaseModel):
     """数据库配置"""
     path: str = "~/.github-star-mcp/data.db"
-
-
-class AppSettings(BaseModel):
-    """应用完整配置"""
-    # GitHub 配置
-    github_token: str = ""
-    github_username: str = ""
-
-    # Gitea 配置
-    gitea: GiteaConfig = Field(default_factory=GiteaConfig)
-
-    # LLM 配置
-    llm: LLMConfig = Field(default_factory=LLMConfig)
-
-    # Embedder 配置
-    embedder: EmbedderConfig = Field(default_factory=EmbedderConfig)
-
-    # 文本分割配置
-    text_split: TextSplitConfig = Field(default_factory=TextSplitConfig)
-
-    # 服务器配置
-    server: ServerConfig = Field(default_factory=ServerConfig)
-
-    # 数据库配置
-    database: DatabaseConfig = Field(default_factory=DatabaseConfig)
-
-    # 页面偏好
-    theme: Literal["light", "dark", "system"] = "system"
-    page_size: int = Field(default=20, ge=10, le=100)
 
 
 class ConfigSchema:

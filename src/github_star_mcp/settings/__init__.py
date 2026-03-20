@@ -1,5 +1,5 @@
 """设置模块"""
-from .schema import AppSettings, ConfigSchema, GiteaConfig, LLMConfig, EmbedderConfig, TextSplitConfig, ServerConfig, DatabaseConfig
+from .schema import ConfigSchema, GiteaConfig, LLMConfig, EmbedderConfig, TextSplitConfig, ServerConfig, DatabaseConfig
 from .handler import (
     get_settings,
     load_settings,
@@ -8,7 +8,6 @@ from .handler import (
 )
 
 __all__ = [
-    "AppSettings",
     "ConfigSchema",
     "GiteaConfig",
     "LLMConfig",

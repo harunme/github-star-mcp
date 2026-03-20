@@ -8,6 +8,19 @@ from sqlmodel import Field, Relationship, Session, SQLModel, create_engine, sele
 from .groups.models import Group, ProjectGroup  # noqa: F401
 
 
+class ChatMessage(SQLModel, table=True):
+    """聊天消息表"""
+    __tablename__ = "chat_messages"
+
+    id: int = Field(primary_key=True)
+    role: str = Field(index=True)  # "user" | "assistant" | "system" | "tool"
+    content: str = ""
+    tool_calls: str = ""  # JSON string
+    tool_results: str = ""  # JSON string
+    metadata: str = ""  # JSON string
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
 class Project(SQLModel, table=True):
     """项目表"""
     __tablename__ = "projects"
@@ -50,6 +63,49 @@ class Storage:
 
         self.engine = create_engine(f"sqlite:///{db_path}")
         SQLModel.metadata.create_all(self.engine)
+
+    # ---- Chat Messages ----
+
+    def save_chat_message(
+        self,
+        role: str,
+        content: str,
+        tool_calls: Optional[list] = None,
+        tool_results: Optional[list] = None,
+        metadata: Optional[dict] = None,
+    ) -> ChatMessage:
+        """保存聊天消息"""
+        import json
+        msg = ChatMessage(
+            role=role,
+            content=content,
+            tool_calls=json.dumps(tool_calls or [], ensure_ascii=False),
+            tool_results=json.dumps(tool_results or [], ensure_ascii=False),
+            metadata=json.dumps(metadata or {}, ensure_ascii=False),
+        )
+        with self.get_session() as session:
+            session.add(msg)
+            session.commit()
+            session.refresh(msg)
+            return msg
+
+    def get_chat_messages(self, limit: int = 50) -> list[ChatMessage]:
+        """获取最近的聊天消息"""
+        import json
+        with self.get_session() as session:
+            statement = (
+                select(ChatMessage)
+                .order_by(ChatMessage.created_at.desc())
+                .limit(limit)
+            )
+            return list(reversed(session.exec(statement).all()))
+
+    def clear_chat_messages(self) -> None:
+        """清除所有聊天消息"""
+        with self.get_session() as session:
+            from sqlmodel import delete
+            session.execute(delete(ChatMessage))
+            session.commit()
 
     def get_session(self) -> Session:
         """获取数据库会话"""

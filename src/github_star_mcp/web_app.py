@@ -20,7 +20,8 @@ import uvicorn
 from .config import Config
 from .storage import Storage
 from .tools import MCPTools, create_server
-from .settings import get_settings, save_settings, AppSettings
+from .settings import get_settings, save_settings
+from .settings.schema import GiteaConfig, LLMConfig, EmbedderConfig, TextSplitConfig
 from .groups import GroupService
 from .agent import GitHubStarsAgent
 from .health import HealthChecker
@@ -132,6 +133,7 @@ async def _run_sync_task(config: Config) -> None:
         # Phase 1: 同步仓库元数据（无进度，GitHub starred API 无 total）
         count = 0
         async for repo in client.list_stars(username, per_page=100):
+            await asyncio.sleep(0)  # 让出控制权，允许取消
             from .storage import project_from_repository
             project = project_from_repository(repo, readme_content=None)
             saved = storage.add_project(project)
@@ -156,6 +158,7 @@ async def _run_sync_task(config: Config) -> None:
                 break
 
             for project in projects:
+                await asyncio.sleep(0)  # 让出控制权，允许取消
                 readme = await client.get_readme(project.owner_login, project.name)
                 storage.update_readme(project.id, readme)
                 current += 1
@@ -175,6 +178,9 @@ async def _run_sync_task(config: Config) -> None:
             readme_current=total,
             readme_progress=100,
         )
+    except asyncio.CancelledError:
+        set_sync_state(status=SyncStatus.PENDING)
+        raise
     except Exception as e:
         logger.exception("同步任务失败: %s", e)
         set_sync_state(status=SyncStatus.PENDING)
@@ -214,6 +220,7 @@ async def _run_vectorize_task(config: Config) -> None:
                 break
 
             for project in projects:
+                await asyncio.sleep(0)  # 让出控制权，允许取消
                 try:
                     vector_id = await tools.vector_store.add_project(project)
                     storage.mark_vectorized(project.id, vector_id)
@@ -240,6 +247,15 @@ async def _run_vectorize_task(config: Config) -> None:
             current=final_count,
             total=final_count,
         )
+    except asyncio.CancelledError:
+        # 保留已处理的计数，重启时能从断点继续
+        storage = get_storage(config)
+        current_done = storage.count_vectorized_projects()
+        set_vector_state(
+            status=VectorizeStatus.PENDING,
+            current=current_done,
+        )
+        raise
     except Exception as e:
         error_msg = str(e)
         logger.exception("向量化任务失败: %s", error_msg)
@@ -547,8 +563,16 @@ async def api_config_get(request: Request) -> JSONResponse:
     """获取配置（脱敏）"""
     try:
         settings = get_settings()
-        # 脱敏处理
-        return JSONResponse(settings.model_dump())
+        # 脱敏处理：隐藏敏感字段
+        if "github_token" in settings and settings["github_token"]:
+            settings["github_token"] = "***"
+        if "llm" in settings and settings["llm"].get("api_key"):
+            settings["llm"]["api_key"] = "***"
+        if "gitea" in settings and settings["gitea"].get("token"):
+            settings["gitea"]["token"] = "***"
+        if "embedder" in settings and settings["embedder"].get("api_key"):
+            settings["embedder"]["api_key"] = "***"
+        return JSONResponse(settings)
     except Exception as e:
         logger.exception("获取配置失败: %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -558,23 +582,58 @@ async def api_config_put(request: Request) -> JSONResponse:
     """更新配置"""
     try:
         body = await request.json()
-        settings = get_settings()
+        cfg = request.app.state.config
 
-        # 更新配置
-        for key, value in body.items():
-            if hasattr(settings, key):
-                setattr(settings, key, value)
+        # 检测 LLM/Embedder 配置是否变更
+        llm_changed = False
+        embedder_changed = False
 
-        # 保存
-        save_settings(settings)
+        if "github_token" in body:
+            cfg.github_token = body["github_token"]
+        if "github_username" in body:
+            cfg.github_username = body["github_username"]
+        if "llm" in body:
+            llm_body = body["llm"]
+            old_llm = cfg.llm
+            cfg.llm = LLMConfig(**{k: v for k, v in llm_body.items() if v})
+            llm_changed = (
+                old_llm.provider != cfg.llm.provider or
+                old_llm.model != cfg.llm.model or
+                old_llm.base_url != cfg.llm.base_url
+            )
+        if "embedder" in body:
+            embedder_body = body["embedder"]
+            old_emb = cfg.embedder
+            cfg.embedder = EmbedderConfig(**{k: v for k, v in embedder_body.items() if v})
+            embedder_changed = (
+                old_emb.provider != cfg.embedder.provider or
+                old_emb.model != cfg.embedder.model or
+                old_emb.base_url != cfg.embedder.base_url
+            )
+        if "gitea" in body:
+            cfg.gitea = GiteaConfig(**{k: v for k, v in body["gitea"].items() if v})
+        if "text_split" in body:
+            cfg.text_split = TextSplitConfig(**{k: v for k, v in body["text_split"].items() if v is not None})
+        if "theme" in body:
+            cfg.theme = body["theme"]
+        if "page_size" in body:
+            cfg.page_size = body["page_size"]
 
-        # 更新全局 config
-        config: Config = request.app.state.config
-        config.github_token = settings.github_token or config.github_token
-        config.github_username = settings.github_username or config.github_username
-        config.llm = settings.llm
+        # 同步到 config.yaml
+        save_settings(cfg.model_dump())
 
-        return JSONResponse({"message": "配置已保存", "config": settings.model_dump()})
+        # LLM/Embedder 变更时重建 Agent
+        if llm_changed or embedder_changed:
+            from .vector_store import VectorStore
+            storage = get_storage(cfg)
+            vector_store = VectorStore(cfg.vector_db_path)
+            # 重建 _agent（全局）
+            global _agent
+            _agent = GitHubStarsAgent(config=cfg, storage=storage, vector_store=vector_store)
+            # 同步到 request.app.state（供当前请求链使用）
+            request.app.state.agent = _agent
+
+        return JSONResponse({"message": "配置已保存"})
     except Exception as e:
         logger.exception("更新配置失败: %s", e)
         return JSONResponse({"error": str(e)}, status_code=500)
@@ -789,8 +848,7 @@ async def api_chat(request: Request) -> JSONResponse:
         if not message:
             return JSONResponse({"error": "消息不能为空"}, status_code=400)
 
-        config: Config = request.app.state.config
-        agent = get_agent(config)
+        agent: GitHubStarsAgent = getattr(request.app.state, "agent", None) or get_agent(request.app.state.config)
 
         # 处理聊天
         response = await agent.chat_simple(message)
@@ -817,8 +875,7 @@ async def api_chat_stream(request: Request) -> StreamingResponse:
                 status_code=400,
             )
 
-        config: Config = request.app.state.config
-        agent = get_agent(config)
+        agent: GitHubStarsAgent = getattr(request.app.state, "agent", None) or get_agent(request.app.state.config)
 
         async def generate():
             async for chunk in agent.chat(message):
@@ -837,8 +894,7 @@ async def api_chat_stream(request: Request) -> StreamingResponse:
 async def api_chat_history(request: Request) -> JSONResponse:
     """获取聊天历史"""
     try:
-        config: Config = request.app.state.config
-        agent = get_agent(config)
+        agent: GitHubStarsAgent = getattr(request.app.state, "agent", None) or get_agent(request.app.state.config)
 
         return JSONResponse({"history": agent.get_history()})
     except Exception as e:
@@ -849,8 +905,7 @@ async def api_chat_history(request: Request) -> JSONResponse:
 async def api_chat_clear(request: Request) -> JSONResponse:
     """清除聊天历史"""
     try:
-        config: Config = request.app.state.config
-        agent = get_agent(config)
+        agent: GitHubStarsAgent = getattr(request.app.state, "agent", None) or get_agent(request.app.state.config)
         agent.clear_history()
 
         return JSONResponse({"message": "聊天历史已清除"})
@@ -917,6 +972,8 @@ def create_web_app(config: Config, host: str = "0.0.0.0", port: int = 8080) -> S
         vectorized = storage.count_vectorized_projects()
         if vectorized > 0:
             set_vector_state(status=VectorizeStatus.COMPLETED)
+        # 初始化 Agent 到 app.state
+        app.state.agent = get_agent(config)
         # 启动 MCP session manager
         async with session_manager.run():
             yield
