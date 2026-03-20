@@ -17,7 +17,7 @@ class ChatMessage(SQLModel, table=True):
     content: str = ""
     tool_calls: str = ""  # JSON string
     tool_results: str = ""  # JSON string
-    metadata: str = ""  # JSON string
+    extra_metadata: str = ""  # JSON string
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 
@@ -81,7 +81,7 @@ class Storage:
             content=content,
             tool_calls=json.dumps(tool_calls or [], ensure_ascii=False),
             tool_results=json.dumps(tool_results or [], ensure_ascii=False),
-            metadata=json.dumps(metadata or {}, ensure_ascii=False),
+            extra_metadata=json.dumps(metadata or {}, ensure_ascii=False),
         )
         with self.get_session() as session:
             session.add(msg)
