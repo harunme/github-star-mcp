@@ -41,5 +41,6 @@ export interface ApiResponse<T = unknown> {
   error?: string;
   message?: string;
   status?: SyncState | VectorState;
-  [key: string]: T | undefined;
+  data?: T;
+  [key: string]: T | undefined | string | SyncState | VectorState;
 }

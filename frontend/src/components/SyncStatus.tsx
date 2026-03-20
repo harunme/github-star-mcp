@@ -1,10 +1,16 @@
 import type { SyncStatus } from '../types';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { ChevronRight } from 'lucide-react';
 
 interface Props {
   status: SyncStatus;
   syncedProjects: number;
   syncedReadme: number;
   vectorizedProjects: number;
+  readmeCurrent: number;
+  readmeTotal: number;
 }
 
 const statusLabels: Record<SyncStatus, string> = {
@@ -14,11 +20,11 @@ const statusLabels: Record<SyncStatus, string> = {
   completed: '同步完成',
 };
 
-const statusIcons: Record<SyncStatus, string> = {
-  pending: 'pending',
-  syncing: 'syncing',
-  loading_readme: 'loading_readme',
-  completed: 'completed',
+const statusVariants: Record<SyncStatus, "default" | "secondary" | "outline"> = {
+  pending: 'outline',
+  syncing: 'secondary',
+  loading_readme: 'secondary',
+  completed: 'default',
 };
 
 export function SyncStatusCard({
@@ -26,42 +32,50 @@ export function SyncStatusCard({
   syncedProjects,
   syncedReadme,
   vectorizedProjects,
+  readmeCurrent,
+  readmeTotal,
 }: Props) {
+  const isLoading = status === 'syncing' || status === 'loading_readme';
+  const progress = status === 'loading_readme' && readmeTotal > 0
+    ? Math.round((readmeCurrent / readmeTotal) * 100)
+    : 0;
+
   return (
-    <div className="status-card">
-      <h2>
-        <span className={`status-icon ${statusIcons[status]}`}></span>
-        <span>{statusLabels[status]}</span>
-      </h2>
-
-      <div className="stats-flow">
-        <div className="stat-item">
-          <div className="stat-label">已入库</div>
-          <div className="stat-value">{syncedProjects}</div>
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base font-normal text-muted-foreground">同步状态</CardTitle>
+          <Badge variant={statusVariants[status]} className={isLoading ? 'animate-pulse' : ''}>
+            {statusLabels[status]}
+          </Badge>
         </div>
-
-        <div className="flow-arrow">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M5 12h14M13 5l7 7-7 7" />
-          </svg>
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-center justify-center gap-4 py-2">
+          <div className="text-center">
+            <div className="text-3xl font-bold text-primary">{syncedProjects}</div>
+            <div className="text-xs text-muted-foreground mt-1">已入库</div>
+          </div>
+          <ChevronRight className="text-primary/60 animate-pulse w-6 h-6" />
+          <div className="text-center">
+            <div className="text-3xl font-bold text-primary">{syncedReadme}</div>
+            <div className="text-xs text-muted-foreground mt-1">已同步 README</div>
+          </div>
+          <ChevronRight className="text-primary/60 animate-pulse w-6 h-6" />
+          <div className="text-center">
+            <div className="text-3xl font-bold text-primary">{vectorizedProjects}</div>
+            <div className="text-xs text-muted-foreground mt-1">已向量化</div>
+          </div>
         </div>
-
-        <div className="stat-item">
-          <div className="stat-label">已同步 README</div>
-          <div className="stat-value">{syncedReadme}</div>
-        </div>
-
-        <div className="flow-arrow">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M5 12h14M13 5l7 7-7 7" />
-          </svg>
-        </div>
-
-        <div className="stat-item">
-          <div className="stat-label">已向量化</div>
-          <div className="stat-value">{vectorizedProjects}</div>
-        </div>
-      </div>
-    </div>
+        {status === 'loading_readme' && (
+          <div className="mt-4 space-y-2">
+            <Progress value={progress} max={100} />
+            <p className="text-xs text-center text-muted-foreground">
+              {readmeCurrent} / {readmeTotal} ({progress}%)
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

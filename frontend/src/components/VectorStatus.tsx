@@ -1,4 +1,9 @@
 import type { VectorStatus } from '../types';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Button } from '@/components/ui/button';
+import { Zap, X } from 'lucide-react';
 
 interface Props {
   status: VectorStatus;
@@ -18,6 +23,12 @@ const statusLabels: Record<VectorStatus, string> = {
   completed: '向量化完成',
 };
 
+const statusVariants: Record<VectorStatus, "default" | "secondary" | "outline"> = {
+  pending: 'outline',
+  vectorizing: 'secondary',
+  completed: 'default',
+};
+
 export function VectorStatusCard({
   status,
   progress,
@@ -30,46 +41,54 @@ export function VectorStatusCard({
   isRunning,
 }: Props) {
   return (
-    <div className="status-card">
-      <h2>
-        <span className={`status-icon ${status === 'vectorizing' ? 'syncing' : status === 'completed' ? 'completed' : 'pending'}`}></span>
-        <span>{statusLabels[status]}</span>
-      </h2>
-
-      <div className="progress-container">
-        <div className="progress-bar">
-          <div className="progress-fill" style={{ width: `${progress}%` }}></div>
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base font-normal text-muted-foreground">向量索引</CardTitle>
+          <Badge variant={statusVariants[status]} className={isRunning ? 'animate-pulse' : ''}>
+            {statusLabels[status]}
+          </Badge>
         </div>
-        <div className="progress-text">
-          {current} / {total > 0 ? total : '?'} 个项目
-        </div>
-      </div>
-
-      {status === 'completed' && (
-        <div className="success-message">
-          向量化已完成，可以使用 MCP 搜索/问答功能。
-        </div>
-      )}
-
-      {error && (
-        <div className="error-message" style={{ marginTop: '12px', padding: '10px', background: '#fee2e2', borderRadius: '6px', color: '#dc2626' }}>
-          <strong>向量化失败:</strong> {error}
-        </div>
-      )}
-
-      <div id="vector-action-buttons">
-        {canStart && !isRunning && (
-          <button className="btn btn-primary" onClick={onStart}>
-            <span>⚡</span> 开始向量化
-          </button>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {(isRunning || status === 'completed') && (
+          <div className="space-y-2">
+            <Progress value={progress} max={100} />
+            {total > 0 && (
+              <p className="text-xs text-center text-muted-foreground">
+                {current} / {total} 个项目 ({Math.round(progress)}%)
+              </p>
+            )}
+          </div>
         )}
 
-        {isRunning && (
-          <button className="btn btn-danger" onClick={onCancel}>
-            <span>✕</span> 取消向量化
-          </button>
+        {status === 'completed' && (
+          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-sm text-emerald-400">
+            向量化已完成，可以使用 MCP 搜索/问答功能。
+          </div>
         )}
-      </div>
-    </div>
+
+        {error && (
+          <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3 text-sm text-destructive">
+            <strong>向量化失败:</strong> {error}
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          {canStart && !isRunning && (
+            <Button onClick={onStart} className="w-full">
+              <Zap className="mr-2 w-4 h-4" />
+              开始向量化
+            </Button>
+          )}
+          {isRunning && (
+            <Button variant="destructive" onClick={onCancel} className="w-full">
+              <X className="mr-2 w-4 h-4" />
+              取消向量化
+            </Button>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

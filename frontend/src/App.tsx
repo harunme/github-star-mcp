@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SyncStatusCard } from './components/SyncStatus';
 import { VectorStatusCard } from './components/VectorStatus';
 import { ActionButtons } from './components/ActionButtons';
@@ -6,6 +7,7 @@ import { MCPInfo } from './components/MCPInfo';
 import { usePolling } from './hooks/usePolling';
 import { fetchInitialData, fetchStatus, startSync, cancelSync, resetSync, startVectorize, cancelVectorize } from './api/sync';
 import type { SyncState, InitialData } from './types';
+import { Github } from 'lucide-react';
 
 function App() {
   const [initialData, setInitialData] = useState<InitialData | null>(null);
@@ -112,10 +114,12 @@ function App() {
 
   if (!initialData || !state) {
     return (
-      <div className="container">
-        <div style={{ textAlign: 'center', padding: '40px' }}>
-          <p>加载中...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardContent className="pt-6">
+            <p className="text-center text-muted-foreground">加载中...</p>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -125,39 +129,52 @@ function App() {
   const isVectorizing = state.vector_status.status === 'vectorizing';
 
   return (
-    <div className="container">
-      <div className="header">
-        <h1>GitHub Stars MCP Server</h1>
-        <p>用户: <span className="username">{initialData.username}</span></p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 to-slate-900 py-8 px-4">
+      <div className="max-w-2xl mx-auto">
+        <Card className="w-full">
+          <CardHeader className="text-center pb-2">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <Github className="w-6 h-6" />
+              <CardTitle>GitHub Stars MCP Server</CardTitle>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              用户: <span className="text-primary font-medium">{initialData.username}</span>
+            </p>
+          </CardHeader>
+
+          <CardContent className="space-y-6">
+            <SyncStatusCard
+              status={state.status}
+              syncedProjects={state.synced_projects}
+              syncedReadme={state.synced_readme}
+              vectorizedProjects={state.vectorized_projects}
+              readmeCurrent={state.readme_current}
+              readmeTotal={state.readme_total}
+            />
+
+            <VectorStatusCard
+              status={state.vector_status.status}
+              progress={state.vector_status.progress}
+              current={state.vector_status.current}
+              total={state.vector_status.total}
+              error={state.vector_status.error}
+              onStart={handleStartVectorize}
+              onCancel={handleCancelVectorize}
+              canStart={canStartVectorize}
+              isRunning={isVectorizing}
+            />
+
+            <ActionButtons
+              status={state.status}
+              onStart={handleStartSync}
+              onCancel={handleCancelSync}
+              onReset={handleResetSync}
+            />
+
+            <MCPInfo requireSync={initialData.require_sync} syncCompleted={syncCompleted} />
+          </CardContent>
+        </Card>
       </div>
-
-      <SyncStatusCard
-        status={state.status}
-        syncedProjects={state.synced_projects}
-        syncedReadme={state.synced_readme}
-        vectorizedProjects={state.vectorized_projects}
-      />
-
-      <VectorStatusCard
-        status={state.vector_status.status}
-        progress={state.vector_status.progress}
-        current={state.vector_status.current}
-        total={state.vector_status.total}
-        error={state.vector_status.error}
-        onStart={handleStartVectorize}
-        onCancel={handleCancelVectorize}
-        canStart={canStartVectorize}
-        isRunning={isVectorizing}
-      />
-
-      <ActionButtons
-        status={state.status}
-        onStart={handleStartSync}
-        onCancel={handleCancelSync}
-        onReset={handleResetSync}
-      />
-
-      <MCPInfo requireSync={initialData.require_sync} syncCompleted={syncCompleted} />
     </div>
   );
 }

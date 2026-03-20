@@ -56,8 +56,10 @@ class MCPTools:
         username = self.config.github_username
 
         repos = []
-        async for repo in client.list_stars(username, per_page=limit):
+        async for repo in client.list_stars(username, per_page=100):
             repos.append(repo)
+            if len(repos) >= limit:
+                break
             if language and repo.language == language:
                 break
 
@@ -81,7 +83,7 @@ class MCPTools:
         username = self.config.github_username
 
         count = 0
-        async for repo in client.list_stars(username, per_page=limit):
+        async for repo in client.list_stars(username, per_page=100):
             # 获取 README
             readme = await client.get_readme(repo.owner_login, repo.name)
 
@@ -98,6 +100,8 @@ class MCPTools:
             self.storage.update_sync_status(saved_project.id, vector_id)
 
             count += 1
+            if count >= limit:
+                break
 
         synced_count = self.storage.count_synced_projects()
         total_count = self.storage.count_projects()
