@@ -41,9 +41,14 @@ from .tools import run_server
     help="Gitea 用户名",
 )
 @click.option(
-    "--anthropic-api-key",
-    envvar="ANTHROPIC_API_KEY",
-    help="Anthropic API Key (用于 RAG)",
+    "--llm-api-key",
+    envvar="LLM_API_KEY",
+    help="LLM API Key",
+)
+@click.option(
+    "--llm-base-url",
+    default=None,
+    help="LLM Base URL (支持 OpenAI 兼容 API)",
 )
 @click.option(
     "--transport",
@@ -75,7 +80,8 @@ def main(
     gitea_url: str | None,
     gitea_token: str | None,
     gitea_username: str | None,
-    anthropic_api_key: str | None,
+    llm_api_key: str | None,
+    llm_base_url: str | None,
     transport: str = "stdio",
     mode: str | None = None,
     host: str | None = None,
@@ -96,8 +102,10 @@ def main(
         config.gitea.token = gitea_token
     if gitea_username:
         config.gitea.username = gitea_username
-    if anthropic_api_key:
-        config.anthropic_api_key = anthropic_api_key
+    if llm_api_key:
+        config.llm.api_key = llm_api_key
+    if llm_base_url:
+        config.llm.base_url = llm_base_url
 
     # 验证必要配置
     if not config.github_token:

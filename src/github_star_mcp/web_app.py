@@ -572,7 +572,7 @@ async def api_config_put(request: Request) -> JSONResponse:
         config: Config = request.app.state.config
         config.github_token = settings.github_token or config.github_token
         config.github_username = settings.github_username or config.github_username
-        config.anthropic_api_key = getattr(settings.llm, "api_key", "") or config.anthropic_api_key
+        config.llm = settings.llm
 
         return JSONResponse({"message": "配置已保存", "config": settings.model_dump()})
     except Exception as e:

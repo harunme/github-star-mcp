@@ -39,7 +39,11 @@ gitea:
   token: your_gitea_token
   username: your_username
 
-anthropic_api_key: your_anthropic_api_key
+llm:
+  provider: anthropic  # anthropic | openai | ollama
+  api_key: your_api_key
+  model: claude-sonnet-4-20250514
+  base_url: ""  # Custom base URL for OpenAI compatible APIs
 
 database:
   path: ~/.github-star-mcp/data.db
@@ -65,7 +69,7 @@ Add the following to `~/Library/Application Support/Claude/claude_desktop_config
       "env": {
         "GITHUB_STAR_GITHUB_TOKEN": "your_token",
         "GITHUB_STAR_GITHUB_USERNAME": "your_user",
-        "ANTHROPIC_API_KEY": "your_key"
+        "LLM_API_KEY": "your_key"
       }
     }
   }

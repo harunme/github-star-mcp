@@ -8,9 +8,24 @@ gitea:
   token: your_gitea_token_here
   username: your_gitea_username
 
-# Anthropic API for RAG (optional)
-anthropic_api_key: your_anthropic_api_key_here
-anthropic_model: claude-sonnet-4-20250514
+# LLM Configuration (supports Anthropic, OpenAI, Ollama)
+llm:
+  provider: anthropic          # anthropic | openai | ollama
+  api_key: your_api_key_here  # API Key for the provider
+  model: claude-sonnet-4-20250514  # Model name
+  base_url: ""                # Custom base URL (for OpenAI compatible APIs)
+
+# Embedder Configuration
+embedder:
+  provider: sentence-transformers  # sentence-transformers | openai | cohere | ollama
+  model: all-MiniLM-L6-v2
+  api_key: ""
+  base_url: ""                # Custom base URL (for Ollama)
+
+# Text splitting
+text_split:
+  chunk_size: 1024
+  chunk_overlap: 128
 
 # Local SQLite database
 database:

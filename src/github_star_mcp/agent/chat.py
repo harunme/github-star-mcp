@@ -85,9 +85,9 @@ class GitHubStarsAgent:
             try:
                 from langchain_openai import ChatOpenAI
                 return ChatOpenAI(
-                    api_key=llm_config.api_key or self.config.anthropic_api_key,
-                    model=llm_config.model if llm_config else "gpt-4o",
-                    base_url=llm_config.base_url if llm_config else None,
+                    api_key=llm_config.api_key or "",
+                    model=llm_config.model or "gpt-4o",
+                    base_url=llm_config.base_url or None,
                     streaming=True,
                 )
             except ImportError:
@@ -98,8 +98,9 @@ class GitHubStarsAgent:
             try:
                 from langchain_anthropic import ChatAnthropic
                 return ChatAnthropic(
-                    api_key=self.config.anthropic_api_key,
-                    model=llm_config.model if llm_config else "claude-sonnet-4-20250514",
+                    api_key=llm_config.api_key or "",
+                    model=llm_config.model or "claude-sonnet-4-20250514",
+                    base_url=llm_config.base_url or None,
                     streaming=True,
                 )
             except ImportError:

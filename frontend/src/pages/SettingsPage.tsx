@@ -151,21 +151,17 @@ export function SettingsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">模型</label>
-              <select
-                value={config.llm?.model || 'claude-sonnet-4-20250514'}
+              <input
+                type="text"
+                value={config.llm?.model || ''}
                 onChange={(e) => handleChange('llm.model', e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                {(config.llm?.provider === 'openai' ? [
-                  'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'
-                ] : config.llm?.provider === 'ollama' ? [
-                  'llama3.2', 'llama3.1', 'qwen2.5', 'deepseek-v2'
-                ] : [
-                  'claude-opus-4-20250514', 'claude-sonnet-4-20250514', 'claude-haiku-4-20250514'
-                ]).map((model) => (
-                  <option key={model} value={model}>{model}</option>
-                ))}
-              </select>
+                placeholder={
+                  config.llm?.provider === 'anthropic' ? 'claude-sonnet-4-20250514' :
+                  config.llm?.provider === 'openai' ? 'gpt-4o' :
+                  'llama3.2'
+                }
+              />
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">API Key</label>
@@ -177,18 +173,19 @@ export function SettingsPage() {
                 placeholder={config.llm?.provider === 'ollama' ? '不需要 (留空)' : 'sk-ant-...'}
               />
             </div>
-            {(config.llm?.provider === 'ollama' || config.llm?.base_url) && (
-              <div>
-                <label className="block text-sm font-medium mb-1">Base URL</label>
-                <input
-                  type="text"
-                  value={config.llm?.base_url || 'http://localhost:11434'}
-                  onChange={(e) => handleChange('llm.base_url', e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  placeholder="http://localhost:11434"
-                />
-              </div>
-            )}
+            <div>
+              <label className="block text-sm font-medium mb-1">Base URL</label>
+              <input
+                type="text"
+                value={config.llm?.base_url || ''}
+                onChange={(e) => handleChange('llm.base_url', e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                placeholder={
+                  config.llm?.provider === 'ollama' ? 'http://localhost:11434' :
+                  config.llm?.provider === 'openai' ? 'https://api.openai.com/v1' : ''
+                }
+              />
+            </div>
           </CardContent>
         </Card>
 
@@ -214,25 +211,18 @@ export function SettingsPage() {
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">模型</label>
-              <select
-                value={config.embedder?.model || 'all-MiniLM-L6-v2'}
+              <input
+                type="text"
+                value={config.embedder?.model || ''}
                 onChange={(e) => handleChange('embedder.model', e.target.value)}
                 className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-              >
-                {config.embedder?.provider === 'openai' ? [
-                  ['text-embedding-3-small', 'text-embedding-3-small (1536 维)'],
-                  ['text-embedding-3-large', 'text-embedding-3-large (3072 维)'],
-                ] : config.embedder?.provider === 'cohere' ? [
-                  ['embed-english-v3.0', 'embed-english-v3.0 (1024 维)'],
-                ] : config.embedder?.provider === 'ollama' ? [
-                  ['nomic-embed-text', 'nomic-embed-text (768 维)'],
-                ] : [
-                  ['all-MiniLM-L6-v2', 'all-MiniLM-L6-v2 (384 维)'],
-                  ['all-mpnet-base-v2', 'all-mpnet-base-v2 (768 维)'],
-                ].map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
+                placeholder={
+                  config.embedder?.provider === 'openai' ? 'text-embedding-3-small' :
+                  config.embedder?.provider === 'cohere' ? 'embed-english-v3.0' :
+                  config.embedder?.provider === 'ollama' ? 'nomic-embed-text' :
+                  'all-MiniLM-L6-v2'
+                }
+              />
             </div>
             {!['sentence-transformers'].includes(config.embedder?.provider || '') && (
               <div>
@@ -246,6 +236,19 @@ export function SettingsPage() {
                 />
               </div>
             )}
+            <div>
+              <label className="block text-sm font-medium mb-1">Base URL</label>
+              <input
+                type="text"
+                value={config.embedder?.base_url || ''}
+                onChange={(e) => handleChange('embedder.base_url', e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                placeholder={
+                  config.embedder?.provider === 'ollama' ? 'http://localhost:11434' :
+                  config.embedder?.provider === 'openai' ? 'https://api.openai.com/v1' : 'https://api.cohere.ai'
+                }
+              />
+            </div>
           </CardContent>
         </Card>
 

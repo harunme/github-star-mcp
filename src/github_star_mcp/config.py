@@ -7,6 +7,8 @@ import yaml
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .settings.schema import LLMConfig, EmbedderConfig
+
 
 class GiteaConfig(BaseModel):
     """Gitea 配置"""
@@ -50,8 +52,10 @@ class Config(BaseSettings):
     server: ServerConfig = ServerConfig()
 
     # LLM 配置
-    anthropic_api_key: str = ""
-    anthropic_model: str = "claude-sonnet-4-20250514"
+    llm: LLMConfig = LLMConfig()
+
+    # Embedder 配置
+    embedder: EmbedderConfig = EmbedderConfig()
 
     @property
     def db_path(self) -> Path:
